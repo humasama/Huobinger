@@ -90,6 +90,7 @@ struct ps_attr_align_64 ps_context {
 #define ETH_ALEN 6
 #endif
 
+#if 0 // This is conflict with the same version in libnids
 static inline __sum16 ip_fast_csum(const void *iph, unsigned int ihl)
 {
 	unsigned int sum;
@@ -119,6 +120,7 @@ static inline __sum16 ip_fast_csum(const void *iph, unsigned int ihl)
 	       : "memory");
 	return (__sum16)sum;
 }
+#endif
 
 #endif	/* __KERNEL__ */
 
