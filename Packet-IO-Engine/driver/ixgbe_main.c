@@ -2598,9 +2598,14 @@ static void ixgbe_configure_rx(struct ixgbe_adapter *adapter)
 	int max_frame = netdev->mtu + ETH_HLEN + ETH_FCS_LEN;
 	int i, j;
 	u32 rdlen, rxctrl, rxcsum;
-	static const u32 seed[10] = { 0xE291D73D, 0x1805EC6C, 0x2A94B30D,
+	/*static const u32 seed[10] = { 0xE291D73D, 0x1805EC6C, 0x2A94B30D,
 	                  0xA54F2BEC, 0xEA49AF7C, 0xE214AD3D, 0xB855AABE,
-	                  0x6A3E67EA, 0x14364D17, 0x3BED200D};
+	                  0x6A3E67EA, 0x14364D17, 0x3BED200D};*/
+	/* RSK */
+	static const u32 seed[10] = { 0x6d5a6d5a, 0x6d5a6d5a, 0x6d5a6d5a,
+	                0x6d5a6d5a, 0x6d5a6d5a, 0x6d5a6d5a,
+	              0x6d5a6d5a, 0x6d5a6d5a, 0x6d5a6d5a };
+	/* RSK */
 	u32 fctrl, hlreg0;
 	u32 reta = 0, mrqc = 0;
 	u32 rdrxctl;
