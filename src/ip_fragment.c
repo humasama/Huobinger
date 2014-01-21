@@ -30,7 +30,7 @@
 #define GFP_ATOMIC UNUSED
 #define NETDEBUG(x)
 
-extern pthread_t ip_context;
+extern pthread_key_t ip_context;
 
 struct sk_buff {
 	char *data;

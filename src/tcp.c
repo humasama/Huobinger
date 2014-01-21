@@ -46,7 +46,6 @@ enum {
 
 #define EXP_SEQ (snd->first_data_seq + rcv->count + rcv->urg_count)
 
-extern struct proc_node *tcp_procs;
 extern pthread_key_t tcp_context;
 
 void purge_queue(struct half_stream * h)
@@ -551,19 +550,6 @@ nids_discard(struct tcp_stream * a_tcp, int num)
 	if (num < a_tcp->read)
 		a_tcp->read = num;
 }
-
-void
-nids_register_tcp(void (*x))
-{
-	register_callback(&tcp_procs, x);
-}
-
-void
-nids_unregister_tcp(void (*x))
-{
-	unregister_callback(&tcp_procs, x);
-}
-
 
 #if HAVE_ICMPHDR
 #define STRUCT_ICMP struct icmphdr

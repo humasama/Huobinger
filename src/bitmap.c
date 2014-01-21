@@ -5,12 +5,13 @@
 
 #include "bitmap.h"
 #include "fire_config.h"
+#include "fire_common.h"
 
 #define BITSPERWORD 64
 #define SHIFT 6
 #define MASK 0x3F
 
-extern pthread_t tcp_context;
+extern pthread_key_t tcp_context;
 extern fire_config_t *config;
 
 #define WORD_FULL 0x0
@@ -22,11 +23,14 @@ void bitmap_init(int cache_elem_num)
 {
 	tcp_context_t *tcp_thread_local_p = pthread_getspecific(tcp_context);
 
+	if (config->max_stream_num <= cache_elem_num) {
+		return;
+	}
 	int bitmap_size = (config->max_stream_num - cache_elem_num) / BITSPERWORD;
 	tcp_thread_local_p->bitmap_size = bitmap_size/(config->worker_num - 1);
 	tcp_thread_local_p->bitmap = calloc(tcp_thread_local_p->bitmap_size, sizeof(uint64_t));
 	if (!tcp_thread_local_p->bitmap) {
-		printf("Error allocating bitmap!\n");
+		fprint(ERROR, "Error allocating bitmap!\n");
 		exit(0);
 	}
 	memset((void *)tcp_thread_local_p->bitmap, 0xFF, tcp_thread_local_p->bitmap_size * 8);

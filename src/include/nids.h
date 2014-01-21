@@ -144,15 +144,7 @@ struct tcp_timeout
   struct tcp_timeout *prev;
 };
 
-int nids_init (void);
-void nids_register_ip_frag (void (*));
-void nids_unregister_ip_frag (void (*));
-void nids_register_ip (void (*));
-void nids_unregister_ip (void (*));
-void nids_register_tcp (void (*));
-void nids_unregister_tcp (void (*x));
-void nids_register_udp (void (*));
-void nids_unregister_udp (void (*));
+int nids_init (int);
 void nids_killtcp (struct tcp_stream *);
 void nids_discard (struct tcp_stream *, int);
 int nids_run (void);
@@ -166,8 +158,6 @@ int nids_next (void);
 extern struct nids_prm nids_params;
 extern char *nids_warnings[];
 extern char nids_errbuf[];
-extern struct pcap_pkthdr *nids_last_pcap_header;
-extern u_char *nids_last_pcap_data;
 extern u_int nids_linkoffset;
 extern struct tcp_timeout *nids_tcp_timeouts;
 

@@ -2,11 +2,11 @@ include fire.mk
 
 CC = gcc
 #CFLAGS = -Wall -g -D__USE_GNU -D_GNU_SOURCE -DMAX_WORKER_NUM=8
-CFLAGS		= -O2 -lpthread -D__USE_GNU -D_BSD_SOURCE
+CFLAGS		= -g -D__USE_GNU -D_BSD_SOURCE
 CFLAGS		+= -DLIBNET_VER=-1 -DHAVE_ICMPHDR=1 -DHAVE_TCP_STATES=1 -DHAVE_BSD_UDPHDR=1 
-CFLAGS		+= $(FIRE_CONFIGS)
+CFLAGS		+= $(FIRE_CONFIGS) -DFIRE_PRINT_LEVEL=$(PRINT_LEVEL)
 
-LIBS = -lrt -lpthread -L../Packet-IO-Engine/lib -lpsio
+LIBS = -lrt -L../Packet-IO-Engine/lib -lpsio -lpthread
 
 HEADER_DIR = ./include 
 IOENGINE_DIR = ../Packet-IO-Engine/include
@@ -25,7 +25,7 @@ OBJECT = $(addprefix $(OBJECT_DIR)/, $(OBJECT_FILE))
 all: $(TARGET)
 
 $(TARGET): $(OBJECT) | $(TARGET_DIR) $(OBJECT_DIR)
-	$(CC) -pg $(OBJECT) -o $@ $(LIBS) $(LDFLAGS)
+	$(CC) -pg $(OBJECT) -o $@ $(LIBS) 
 
 $(OBJECT_DIR):
 	mkdir $(OBJECT_DIR)

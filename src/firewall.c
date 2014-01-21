@@ -27,6 +27,8 @@
 #include "psio.h"
 
 extern fire_worker_t workers[MAX_WORKER_NUM];
+extern pthread_key_t ip_context;
+extern pthread_key_t tcp_context;
 fire_config_t *config;
 
 int get_cpu_nums()
@@ -41,8 +43,8 @@ int fire_init_config()
 	memcpy(config->interface, "xge1", sizeof("xge1"));
 	config->io_batch_num = 128;
 	config->ifindex = -1;
-	config->max_stream_num = 2000; //FIXME
-	config->worker_num = 8;
+	config->max_stream_num = 2000; // XXX
+	//config->worker_num = 8;
 
 	return 0;
 }
@@ -60,7 +62,6 @@ int fire_init_ioengine()
 		exit(1);
 	}
 
-	/* client side interface */
 	for (i = 0; i < num_devices; i ++) {
 		if (strcmp(config->interface, devices[i].name) != 0)
 			continue;
@@ -69,6 +70,9 @@ int fire_init_ioengine()
 		break;
 	}
 	assert (ifindex != -1);
+
+    /* There are the same number of queues and workers */
+    config->worker_num = (config->device).num_rx_queues; 
 
 	for (i = 0; i < num_devices_attached; i ++) {
 		assert(devices_attached[i] != ifindex);
@@ -80,14 +84,22 @@ int fire_init_ioengine()
 	return 0;
 }
 
-int fire_launch_workers(int num)
+int fire_init_pthread_keys()
+{
+	pthread_key_create(&ip_context, NULL);
+	pthread_key_create(&tcp_context, NULL);
+
+	return 0;
+}
+
+int fire_launch_workers()
 {
 	unsigned int i;
 	pthread_t tid;
 	pthread_attr_t attr;
 	fire_worker_context_t *context;
 
-	for (i = 0; i < num; i ++) {
+	for (i = 0; i < config->worker_num; i ++) {
 		context = (fire_worker_context_t *)malloc(sizeof(fire_worker_context_t));
 		context->queue_id = i;
 		context->core_id = i;
@@ -106,11 +118,9 @@ int main(int argc, char **argv)
 {
 	fire_init_config();
 	fire_init_ioengine();
+	fire_init_pthread_keys();
 	
-	int cpu_num = get_cpu_nums();
-	assert(cpu_num >= 1);
-
-	fire_launch_workers(cpu_num);
+	fire_launch_workers();
 
 	while(1) sleep(60);	
 	return 0;

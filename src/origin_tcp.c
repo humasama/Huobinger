@@ -4,7 +4,9 @@
 #include <stdlib.h>
 #include <netinet/ip.h>
 #include <netinet/tcp.h>
+#if defined(CRC_HASH)
 #include <nmmintrin.h>
+#endif
 #include "nids.h"
 #include "util.h"
 #include "tcp.h"
@@ -15,7 +17,7 @@ extern TEST_SET tcp_test[MAX_CPU_CORES];
 
 extern int number_of_cpus_used;
 extern struct proc_node *tcp_procs;
-extern pthread_t tcp_context;
+extern pthread_key_t tcp_context;
 
 extern int get_ts(struct tcphdr *, unsigned int *);
 extern int get_wscale(struct tcphdr *, unsigned int *);

@@ -1,5 +1,7 @@
 #include "signature.h"
+#if __SSE4_2__
 #include <nmmintrin.h>
+#endif
 
 inline sig_type calc_signature(const uint32_t sip, const uint32_t dip, const uint16_t sport, const uint16_t dport)
 {

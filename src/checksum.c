@@ -15,15 +15,6 @@ void nids_register_chksum_ctl(struct nids_chksum_ctl * ptr, int nr)
 	nrnochksum=nr;
 }
 
-static int dontchksum(unsigned int ip)
-{
-	int i;
-		for (i=0;i<nrnochksum;i++)
-			if ((ip & nchk[i].mask)==nchk[i].netaddr)
-				return nchk[i].action;
-	return 0;
-}
- 
 #if ( __i386__ || __i386 )
 // all asm procedures are copied from Linux 2.0.36 and 2.2.10 kernels
 
@@ -122,8 +113,6 @@ csum_partial(const u_char * buff, int len, u_int sum)
 inline u_short ip_fast_csum(u_char * iph, u_int ihl)
 {
   u_int sum;
-  if (dontchksum(((struct ip*)iph)->ip_src.s_addr))
-	return 0;
   __asm__ __volatile__(
 "	    movl (%1), %0			\n"
 "	    subl $4, %2				\n"
@@ -199,16 +188,12 @@ ip_compute_csum(u_char * buff, int len)
 inline u_short
 my_tcp_check(struct tcphdr *th, int len, u_int saddr, u_int daddr)
 {
-  if (dontchksum(saddr))
-  	return 0;
   return csum_tcpudp_magic(saddr, daddr, len, IPPROTO_TCP,
 			   csum_partial((u_char *)th, len, 0));
 }
 inline u_short
 my_udp_check(void *u, int len, u_int saddr, u_int daddr)
 {
-  if (dontchksum(saddr))
-  	return 0;
   return csum_tcpudp_magic(saddr, daddr, len, IPPROTO_UDP,
 			   csum_partial((u_char *)u, len, 0));
 }
@@ -257,8 +242,6 @@ ip_check_ext(register u_short *addr, register int len, int addon)
 u_short
 ip_fast_csum(u_short *addr, int len)
 {
-  if (dontchksum(((struct ip*)addr)->ip_src.s_addr))
-	return 0;
   return ip_check_ext(addr, len << 2, 0);
 }
 
@@ -275,9 +258,6 @@ my_tcp_check(struct tcphdr *th, int len, u_int saddr, u_int daddr)
   int sum = 0;
   struct psuedo_hdr hdr;
 
-  if (dontchksum(saddr))
-  	return 0;
-  
   hdr.saddr = saddr;
   hdr.daddr = daddr;
   hdr.zero = 0;
@@ -295,9 +275,6 @@ my_udp_check(void *u, int len, u_int saddr, u_int daddr)
   int sum = 0;
   struct psuedo_hdr hdr;
 
-  if (dontchksum(saddr))
-  	return 0;
-  
   hdr.saddr = saddr;
   hdr.daddr = daddr;
   hdr.zero = 0;

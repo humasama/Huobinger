@@ -33,7 +33,7 @@ extern TEST_SET tcp_test[MAX_CPU_CORES];
 extern fire_config_t *config;
 
 extern struct proc_node *tcp_procs;
-extern pthread_t tcp_context;
+extern pthread_key_t tcp_context;
 
 static int cache_elem_num;
 static int core_elem_num;
