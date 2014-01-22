@@ -203,10 +203,11 @@ static int gen_ip_frag_proc(struct ip * data, int len)
 	if (len < (int)sizeof(struct ip) || iph->ip_hl < 5 || iph->ip_v != 4 ||
 			ip_fast_csum((unsigned char *) iph, iph->ip_hl) != 0 ||
 			len < ntohs(iph->ip_len) || ntohs(iph->ip_len) < iph->ip_hl << 2) {
-		fprint(WARN, "wrong packet\n");
+		fprint(DEBUG, "wrong packet\n");
 		return -1;
 	}
 	if (iph->ip_hl > 5 && ip_options_compile((unsigned char *)data)) {
+		fprint(DEBUG, "wrong packet\n");
 		return -1;
 	}
 	switch (ip_defrag_stub((struct ip *) data, &iph)) {
@@ -240,5 +241,8 @@ static int gen_ip_frag_proc(struct ip * data, int len)
 
 int nids_process(void *ip_data, int len)
 {
-	return gen_ip_frag_proc((struct ip *)ip_data, len);
+	gen_ip_frag_proc((struct ip *)ip_data, len);
+	// FIXME: return the right value after experiment tool is ready
+	// currently the ip checksum may be wrong
+	return 0;
 }

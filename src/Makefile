@@ -22,7 +22,7 @@ OBJECT_FILE = $(SOURCE_FILES:.c=.o)
 
 OBJECT = $(addprefix $(OBJECT_DIR)/, $(OBJECT_FILE))
 
-all: $(TARGET)
+all: $(OBJECT_DIR) $(TARGET)
 
 $(TARGET): $(OBJECT) | $(TARGET_DIR) $(OBJECT_DIR)
 	$(CC) -pg $(OBJECT) -o $@ $(LIBS) 

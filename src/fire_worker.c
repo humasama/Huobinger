@@ -52,9 +52,14 @@ int form_packet(char *data, int len)
 	struct tcphdr *tcph;
 	uint8_t proto_in_ip = 0;
 	uint16_t checksum;
-
+	char tmp[6];
 
 	ethh = (struct ethhdr *)data;
+
+	// FIXME: dest address of the server/client
+	memcpy(tmp, ethh->h_dest, 6);
+	memcpy(ethh->h_dest, ethh->h_source, 6);
+	memcpy(ethh->h_source, tmp, 6);
 
 	/* IP layer */
 	switch (ntohs(ethh->h_proto)) {
@@ -104,7 +109,7 @@ int process_packet(char *eth_data, int len)
 
 int fire_worker_start(int queue_id)
 {
-	int ret, i, prot;
+	int ret, i, prot, send_ret;
 
 	fire_worker_t *cc = &(workers[queue_id]); 
 	assert(ps_init_handle(&(cc->handle)) == 0);
@@ -138,9 +143,11 @@ int fire_worker_start(int queue_id)
 		}
 
 		cc->total_packets += ret;
-		cc->total_bytes += ret * 1370; // FIXME
 
 #if defined(NOT_PROCESS)
+		for (i = 0; i < ret; i ++) {
+			cc->total_bytes += chunk.info[i].len; 
+		}
 		continue;
 #endif
 
@@ -151,17 +158,41 @@ int fire_worker_start(int queue_id)
 				fprint(WARN, "Is IP fragment or bad packet, not forwarding\n");
 				continue;
 			}
+			cc->total_bytes += chunk.info[i].len; 
 
 			send_chunk.info[j].len = chunk.info[i].len;
 			send_chunk.info[j].offset = j * PS_MAX_PACKET_SIZE;
 			memcpy(send_chunk.buf + send_chunk.info[j].offset,
 				chunk.buf + chunk.info[i].offset, chunk.info[i].len);
+
 			form_packet(send_chunk.buf + send_chunk.info[j].offset, send_chunk.info[j].len);
+
 			j++;
 		}
 	
-		ret = ps_send_chunk(&(cc->handle), &send_chunk);
-		assert(ret >= 0);
+		if (j == 0) {
+			fprint(ERROR, "Sending 0 packets\n");
+			continue;
+		}
+		send_chunk.recv_blocking = 1;
+		send_chunk.queue.ifindex = config->ifindex; 
+		send_chunk.queue.qidx = queue_id;
+
+		// FIXME: cannot send all packets
+		fprint(DEBUG, "sending packet, queue_id %d, num %d, index %d\n", queue_id, j, config->ifindex);
+		send_chunk.cnt = j;
+		send_ret = ps_send_chunk(&(cc->handle), &send_chunk);
+		if (send_ret < 0)
+			fprint(ERROR, "send packet fail, ret = %d\n", send_ret);
+		/*
+		while (j > 0) {
+			send_chunk.cnt = j;
+			send_ret = ps_send_chunk(&(cc->handle), &send_chunk);
+			if (send_ret < 0)
+				fprint(ERROR, "send packet fail, ret = %d\n", send_ret);
+			j -= send_ret;
+			//assert(ret >= 0);
+		}*/
 	}
 	return 0;
 }
