@@ -331,9 +331,6 @@ add_from_skb(struct tcp_stream * a_tcp, struct half_stream * rcv,
              u_char *data, int datalen,
              u_int this_seq, char fin, char urg, u_int urg_ptr)
 {
-	u_int lost = EXP_SEQ - this_seq;
-	int to_copy, to_copy2;
-
 	if (urg && after(urg_ptr, EXP_SEQ - 1) &&
 			(!rcv->urg_seen || after(urg_ptr, rcv->urg_ptr))) {
 		rcv->urg_ptr = urg_ptr;
@@ -341,6 +338,9 @@ add_from_skb(struct tcp_stream * a_tcp, struct half_stream * rcv,
 	}
 
 #if !defined(DISABLE_UPPER_LAYER)
+	u_int lost = EXP_SEQ - this_seq;
+	int to_copy, to_copy2;
+
 	if (rcv->urg_seen && after(rcv->urg_ptr + 1, this_seq + lost) &&
 			before(rcv->urg_ptr, this_seq + datalen)) {
 		to_copy = rcv->urg_ptr - (this_seq + lost);
@@ -398,8 +398,6 @@ tcp_queue(struct tcp_stream * a_tcp, struct tcphdr * this_tcphdr,
           char *data, int datalen, int skblen
           )
 {
-	tcp_context_t *tcp_thread_local_p = pthread_getspecific(tcp_context);
-
 	u_int this_seq = ntohl(this_tcphdr->th_seq);
 	struct skbuff *pakiet, *tmp;
 

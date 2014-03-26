@@ -12,6 +12,7 @@
 #include <errno.h>
 #include <pthread.h>
 #include <sys/wait.h>
+#include <sys/time.h>
 
 #include <netinet/in.h>
 #include <netinet/ip6.h>
@@ -23,6 +24,7 @@
 #include <linux/tcp.h>
 
 #include "fire_config.h"
+#include "fire_common.h"
 #include "fire_worker.h"
 #include "psio.h"
 
@@ -30,6 +32,9 @@ extern fire_worker_t workers[MAX_WORKER_NUM];
 extern pthread_key_t ip_context;
 extern pthread_key_t tcp_context;
 fire_config_t *config;
+
+//int affinity_array[12] = {1,3,5,7,9,11,0,2,4,6,8,10};
+int affinity_array[12] = {0,2,4,6,8,10,1,3,5,7,9,11};
 
 int get_cpu_nums()
 {
@@ -41,7 +46,7 @@ int fire_init_config()
 	config = (fire_config_t *)calloc(sizeof(fire_config_t), 1);
 
 	memcpy(config->interface, "xge1", sizeof("xge1"));
-	config->io_batch_num = 128;
+	config->io_batch_num = 512;
 	config->ifindex = -1;
 	config->max_stream_num = 2000; // XXX
 	//config->worker_num = 8;
@@ -71,15 +76,15 @@ int fire_init_ioengine()
 	}
 	assert (ifindex != -1);
 
-    /* There are the same number of queues and workers */
-    config->worker_num = (config->device).num_rx_queues; 
-
 	for (i = 0; i < num_devices_attached; i ++) {
 		assert(devices_attached[i] != ifindex);
 	}
 	devices_attached[num_devices_attached] = ifindex;
 	config->ifindex = ifindex;
 	num_devices_attached ++;
+
+    /* There are the same number of queues and workers */
+    config->worker_num = (config->device).num_rx_queues; 
 
 	return 0;
 }
@@ -92,6 +97,53 @@ int fire_init_pthread_keys()
 	return 0;
 }
 
+void stop_signal_handler(int signal)
+{
+	int i;
+	struct timeval subtime;
+	uint64_t total_rx_packets = 0, total_rx_bytes = 0;;
+	fire_worker_t *cc;
+	double speed_handle = 0;
+	double speed_actual = 0;
+
+	for (i = 0; i < config->worker_num; i ++) {
+		cc = &(workers[i]);
+
+		gettimeofday(&(cc->endtime), NULL);
+		timersub(&(cc->endtime), &(cc->startime), &(cc->subtime));
+	}
+
+	for (i = 0; i < config->worker_num; i ++) {
+		cc = &(workers[i]);
+		subtime = cc->subtime;
+
+		total_rx_packets = (cc->handle).rx_packets[config->ifindex];
+		total_rx_bytes = (cc->handle).rx_bytes[config->ifindex];
+		speed_handle += (double)((total_rx_bytes + total_rx_packets * 20) * 8) / (double) ((subtime.tv_sec * 1000000 + subtime.tv_usec) * 1000);
+
+		printf("----------\n");
+		printf("In handle: %ld packets received, elapse time : %lds, RX Speed : %lf Mpps, %5.2f Gbps, Aveage Len. = %ld\n", 
+				total_rx_packets, subtime.tv_sec, 
+				(double)(total_rx_packets) / (double) (subtime.tv_sec * 1000000 + subtime.tv_usec),
+				(double)((total_rx_bytes + total_rx_packets * 20) * 8) / (double) ((subtime.tv_sec * 1000000 + subtime.tv_usec) * 1000),
+				total_rx_bytes / total_rx_packets);
+
+		total_rx_packets = cc->total_packets;
+		total_rx_bytes = cc->total_bytes;
+		speed_actual += (double)((total_rx_bytes + total_rx_packets * 20) * 8) / (double) ((subtime.tv_sec * 1000000 + subtime.tv_usec) * 1000),
+		printf("Actual: %ld packets received, elapse time : %lds, RX Speed : %lf Mpps, %5.2f Gbps, Aveage Len. = %ld\n", 
+				total_rx_packets, subtime.tv_sec, 
+				(double)(total_rx_packets) / (double) (subtime.tv_sec * 1000000 + subtime.tv_usec),
+				(double)((total_rx_bytes + total_rx_packets * 20) * 8) / (double) ((subtime.tv_sec * 1000000 + subtime.tv_usec) * 1000),
+				total_rx_bytes / total_rx_packets);
+	}
+
+	printf("----------\n");
+	printf("<<< IOEngine handle speed %lf, actual processing speed %lf >>>\n", speed_handle, speed_actual);
+
+	exit(0);
+}
+
 int fire_launch_workers()
 {
 	unsigned int i;
@@ -99,15 +151,38 @@ int fire_launch_workers()
 	pthread_attr_t attr;
 	fire_worker_context_t *context;
 
+#if defined(AFFINITY_NIC)
+	fprint(INFO, "Affinity on the NIC node\n");
+#elif defined(AFFINITY_GPU)
+	fprint(INFO, "Affinity on the GPU node\n");
+#elif defined(AFFINITY_SCATTER)
+	fprint(INFO, "Affinity scatter on two nodes\n");
+#elif defined(AFFINITY_STATIC)
+	fprint(INFO, "Affinity specified in static array\n");
+#elif defined(AFFINITY_NO)
+	fprint(INFO, "Not assign affinity manually\n");
+#else
+	fprint(ERROR, "No affinity scheme selected\n");
+	exit(0);
+#endif
+
 	for (i = 0; i < config->worker_num; i ++) {
 		context = (fire_worker_context_t *)malloc(sizeof(fire_worker_context_t));
 		context->queue_id = i;
+#if defined(AFFINITY_NIC)
+		context->core_id = i * 2 + 1;
+#elif defined(AFFINITY_GPU)
+		context->core_id = i * 2;
+#elif defined(AFFINITY_SCATTER)
 		context->core_id = i;
+#elif defined(AFFINITY_STATIC)
+		context->core_id = affinity_array[i];
+#endif
 
 		pthread_attr_init(&attr);
 		pthread_attr_setdetachstate(&attr, PTHREAD_CREATE_DETACHED);
 		if (pthread_create(&tid, &attr, (void *)fire_worker_main, (void *)context) != 0) {
-			printf("pthread_create error!!\n");
+			fprint(ERROR, "pthread_create error!!\n");
 			return -1;
 		}
 	}
@@ -120,6 +195,8 @@ int main(int argc, char **argv)
 	fire_init_ioengine();
 	fire_init_pthread_keys();
 	
+	signal(SIGINT, stop_signal_handler);
+
 	fire_launch_workers();
 
 	while(1) sleep(60);	

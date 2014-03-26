@@ -6,6 +6,7 @@
 #include <pthread.h>
 #include <errno.h>
 #include <stdint.h>
+#include <numa.h>
 
 #include <linux/if_ether.h>
 #include <linux/ip.h>
@@ -24,11 +25,22 @@
 fire_worker_t workers[MAX_WORKER_NUM];
 extern fire_config_t *config;
 
+char * buffer[MAX_WORKER_NUM];
+int buf_size = 500000000;
+
 int fire_worker_init(fire_worker_context_t *context)
 {
+	buffer[context->queue_id] = (char *)malloc(buf_size);
+
+	/* init worker struct */
+	fire_worker_t *cc = &(workers[context->queue_id]); 
+	cc->total_packets = 0;
+	cc->total_bytes = 0;
+
 	/* nids init */
 	nids_init(context->core_id);
 
+#if !defined(AFFINITY_NO)
 	/* set schedule affinity */
 	unsigned long mask = 1 << context->core_id;
 	if (sched_setaffinity(0, sizeof(unsigned long), (cpu_set_t *)&mask) < 0) {
@@ -39,20 +51,42 @@ int fire_worker_init(fire_worker_context_t *context)
 	struct sched_param param;
 	param.sched_priority = 99;
 	pthread_setschedparam(pthread_self(), SCHED_FIFO, &param);
+#endif
+
+	if (numa_max_node() == 0)
+		return 0;
+	
+	struct bitmask *bmask;
+
+	bmask = numa_bitmask_alloc(16);
+	assert(bmask);
+	numa_bitmask_setbit(bmask, context->core_id % 2);
+	numa_set_membind(bmask);
+	numa_bitmask_free(bmask);
 
 	return 0;
 }
 
-int form_packet(char *data, int len)
+char *get_ptr(int id, int length)
+{
+	static int offset = 0;
+	char *ptr = buffer[id] + offset;
+	*(int *)ptr = id + length;
+	offset = (offset + length) % (buf_size - 1500);
+	return ptr;
+}
+
+int form_packet(char *data, int len,int queue_id)
 {
 	struct ethhdr *ethh;
 	struct iphdr *iph;
-	struct ip6_hdr *ip6h;
 	struct udphdr *udph;
 	struct tcphdr *tcph;
 	uint8_t proto_in_ip = 0;
 	uint16_t checksum;
 	char tmp[6];
+	char *payload_ptr;
+	int payload_len;
 
 	ethh = (struct ethhdr *)data;
 
@@ -82,12 +116,18 @@ int form_packet(char *data, int len)
 	/* Transport layer */
 	switch (proto_in_ip) {
 	case IPPROTO_TCP:
+		payload_ptr = (char *)tcph + tcph->doff * 4;
+		payload_len = len - (payload_ptr - data);
+
 		tcph->check = 0;
 		checksum = my_tcp_check((void *)tcph, len - ((char *)tcph - data),
 			iph->saddr, iph->daddr);
 		tcph->check = ~checksum;
 		break;
 	case IPPROTO_UDP:
+		payload_ptr = (char *)udph + 8;
+		payload_len = len - (payload_ptr - data);
+
 		udph->check = 0;
 		checksum = my_udp_check((void *)udph, ntohs(udph->len),
 			iph->saddr, iph->daddr);
@@ -97,6 +137,9 @@ int form_packet(char *data, int len)
 		fprint(ERROR, "protocol %d ", proto_in_ip);
 		break;
 	}
+
+	char *pp = get_ptr(queue_id, payload_len);
+	memcpy(payload_ptr, pp, payload_len);
 done:
 	return 0;
 }
@@ -119,17 +162,16 @@ int fire_worker_start(int queue_id)
 	queue.qidx = queue_id;
 
 	assert(ps_attach_rx_device(&(cc->handle), &queue) == 0);
-	fprint(INFO, "[Worker %d] is attaching if:queue %d:%d ...\n", queue_id, queue.ifindex, queue.qidx);
 
 	struct ps_chunk chunk, send_chunk;
 	assert(ps_alloc_chunk(&(cc->handle), &chunk) == 0);
 	assert(ps_alloc_chunk(&(cc->handle), &send_chunk) == 0);
-	chunk.recv_blocking = 1;
 
 	gettimeofday(&(cc->startime), NULL);
 
 	for (;;) {
 		chunk.cnt = config->io_batch_num;
+		chunk.recv_blocking = 1;
 
 		ret = ps_recv_chunk(&(cc->handle), &chunk);
 		if (ret < 0) {
@@ -144,32 +186,40 @@ int fire_worker_start(int queue_id)
 
 		cc->total_packets += ret;
 
-#if defined(NOT_PROCESS)
+#if 0
 		for (i = 0; i < ret; i ++) {
 			cc->total_bytes += chunk.info[i].len; 
 		}
+		chunk.cnt = ret;
+		send_ret = ps_send_chunk(&(cc->handle), &chunk);
 		continue;
-#endif
-
+#else
 		int j = 0;
 		for (i = 0; i < ret; i ++) {
+			
 			prot = process_packet(chunk.buf + chunk.info[i].offset, chunk.info[i].len);
 			if (prot == -1) {
 				fprint(WARN, "Is IP fragment or bad packet, not forwarding\n");
+				exit(0);
 				continue;
 			}
-			cc->total_bytes += chunk.info[i].len; 
+			
 
+			//simple_process(chunk.buf + chunk.info[i].offset, chunk.info[i].len, 0);
+			cc->total_bytes += chunk.info[i].len; 
+#if 1
 			send_chunk.info[j].len = chunk.info[i].len;
 			send_chunk.info[j].offset = j * PS_MAX_PACKET_SIZE;
 			memcpy(send_chunk.buf + send_chunk.info[j].offset,
 				chunk.buf + chunk.info[i].offset, chunk.info[i].len);
 
-			form_packet(send_chunk.buf + send_chunk.info[j].offset, send_chunk.info[j].len);
+			form_packet(send_chunk.buf + send_chunk.info[j].offset, send_chunk.info[j].len, queue_id);
 
 			j++;
+#endif
 		}
 	
+#if 1
 		if (j == 0) {
 			fprint(ERROR, "Sending 0 packets\n");
 			continue;
@@ -193,13 +243,16 @@ int fire_worker_start(int queue_id)
 			j -= send_ret;
 			//assert(ret >= 0);
 		}*/
+#endif
+#endif
 	}
 	return 0;
 }
 
 void *fire_worker_main(fire_worker_context_t *context) 
 {
-	fprint(INFO, "Worker on core %d, receiving queue %d ...\n", context->core_id, context->queue_id);
+	fprint(INFO, "[Worker %d] on core %d is attaching if:queue %d:%d ...\n", 
+		context->queue_id, context->core_id, config->ifindex, context->queue_id);
 	fire_worker_init(context);
 	fire_worker_start(context->queue_id);
 

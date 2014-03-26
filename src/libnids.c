@@ -113,26 +113,34 @@ static int nids_ip_filter(struct ip *x, int len)
 
 static void process_udp(char *data)
 {
+	#if 1
 	struct ip *iph = (struct ip *) data;
 	struct udphdr *udph;
 	struct tuple4 addr;
 	int hlen = iph->ip_hl << 2;
 	int len = ntohs(iph->ip_len);
 	int ulen;
-	if (len - hlen < (int)sizeof(struct udphdr))
+	if (len - hlen < (int)sizeof(struct udphdr)) {
+		fprint(ERROR, "packet worng\n");
 		return;
+	}
 	udph = (struct udphdr *) (data + hlen);
 	ulen = ntohs(udph->UH_ULEN);
-	if (len - hlen < ulen || ulen < (int)sizeof(struct udphdr))
+	if (len - hlen < ulen || ulen < (int)sizeof(struct udphdr)) {
+		fprint(ERROR, "packet worng\n");
 		return;
+	}
 	/* According to RFC768 a checksum of 0 is not an error (Sebastien Raveau) */
 	if (udph->uh_sum && my_udp_check((void *) udph, ulen, iph->ip_src.s_addr, 
-		iph->ip_dst.s_addr))
+		iph->ip_dst.s_addr)) {
+		fprint(DEBUG, "packet worng\n");
 		return;
+	}
 	addr.source = ntohs(udph->UH_SPORT);
 	addr.dest = ntohs(udph->UH_DPORT);
 	addr.saddr = iph->ip_src.s_addr;
 	addr.daddr = iph->ip_dst.s_addr;
+#endif
 }
 
 int nids_init(int core_id)
@@ -176,6 +184,7 @@ static int gen_ip_proc(struct ip *data, int skblen)
 
 	switch (data->ip_p) {
 		case IPPROTO_TCP:
+			fprint(ERROR, "tcp packet\n");
 			process_tcp((u_char *)data, skblen);
 			ret = 1;
 			break;
@@ -184,12 +193,25 @@ static int gen_ip_proc(struct ip *data, int skblen)
 			ret = 1;
 			break;
 		case IPPROTO_ICMP:
+			fprint(ERROR, "icmp packet\n");
 			if (nids_params.n_tcp_streams)
 				process_icmp((u_char *)data);
 			break;
 		default:
+			fprint(ERROR, "bad protocol packet\n");
 			break;
 	}
+
+/*
+	int i = 0;
+	while(1) {
+		i++;
+		if (i == 655) {
+			ret = 0;
+			break;
+		}
+	}
+*/
 
 	return ret;
 }
@@ -204,15 +226,18 @@ static int gen_ip_frag_proc(struct ip * data, int len)
 			ip_fast_csum((unsigned char *) iph, iph->ip_hl) != 0 ||
 			len < ntohs(iph->ip_len) || ntohs(iph->ip_len) < iph->ip_hl << 2) {
 		fprint(DEBUG, "wrong packet\n");
-		return -1;
+		//return -1;
 	}
+
+	//return 0;
+
 	if (iph->ip_hl > 5 && ip_options_compile((unsigned char *)data)) {
 		fprint(DEBUG, "wrong packet\n");
-		return -1;
+		//return -1;
 	}
 	switch (ip_defrag_stub((struct ip *) data, &iph)) {
 		case IPF_ISF:
-			return -1;
+			//return -1;
 		case IPF_NOTF:
 			need_free = 0;
 			iph = (struct ip *) data;
@@ -227,6 +252,7 @@ static int gen_ip_frag_proc(struct ip * data, int len)
 		skblen += nids_params.dev_addon;
 	skblen = (skblen + 15) & ~15;
 	skblen += nids_params.sk_buff_size;
+
 
 	ret = gen_ip_proc(iph, skblen);
 	if (need_free) {
