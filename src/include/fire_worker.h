@@ -10,7 +10,8 @@ typedef struct fire_worker_context_s {
 } fire_worker_context_t;
 
 typedef struct fire_worker_s {
-	struct ps_handle handle;
+	struct ps_handle server_handle;
+	struct ps_handle client_handle;
 	uint64_t total_packets;
 	uint64_t total_bytes;
 	struct timeval startime;

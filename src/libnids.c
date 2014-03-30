@@ -11,6 +11,7 @@
 #include <alloca.h>
 #include <errno.h>
 #include <config.h>
+#include <pthread.h>
 #if (HAVE_UNISTD_H)
 #include <unistd.h>
 #endif
@@ -113,7 +114,7 @@ static int nids_ip_filter(struct ip *x, int len)
 
 static void process_udp(char *data)
 {
-	#if 1
+#if 0
 	struct ip *iph = (struct ip *) data;
 	struct udphdr *udph;
 	struct tuple4 addr;
@@ -184,9 +185,7 @@ static int gen_ip_proc(struct ip *data, int skblen)
 
 	switch (data->ip_p) {
 		case IPPROTO_TCP:
-			fprint(ERROR, "tcp packet\n");
-			process_tcp((u_char *)data, skblen);
-			ret = 1;
+			ret = process_tcp((u_char *)data, skblen);
 			break;
 		case IPPROTO_UDP:
 			process_udp((char *)data);
@@ -201,17 +200,6 @@ static int gen_ip_proc(struct ip *data, int skblen)
 			fprint(ERROR, "bad protocol packet\n");
 			break;
 	}
-
-/*
-	int i = 0;
-	while(1) {
-		i++;
-		if (i == 655) {
-			ret = 0;
-			break;
-		}
-	}
-*/
 
 	return ret;
 }
@@ -237,7 +225,7 @@ static int gen_ip_frag_proc(struct ip * data, int len)
 	}
 	switch (ip_defrag_stub((struct ip *) data, &iph)) {
 		case IPF_ISF:
-			//return -1;
+			return -1;
 		case IPF_NOTF:
 			need_free = 0;
 			iph = (struct ip *) data;
@@ -267,8 +255,5 @@ static int gen_ip_frag_proc(struct ip * data, int len)
 
 int nids_process(void *ip_data, int len)
 {
-	gen_ip_frag_proc((struct ip *)ip_data, len);
-	// FIXME: return the right value after experiment tool is ready
-	// currently the ip checksum may be wrong
-	return 0;
+	return gen_ip_frag_proc((struct ip *)ip_data, len);
 }

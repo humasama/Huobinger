@@ -45,9 +45,11 @@ int fire_init_config()
 {
 	config = (fire_config_t *)calloc(sizeof(fire_config_t), 1);
 
-	memcpy(config->interface, "xge1", sizeof("xge1"));
+	memcpy(config->client_interface, "xge1", sizeof("xge1"));
+	memcpy(config->server_interface, "xge0", sizeof("xge0"));
 	config->io_batch_num = 512;
-	config->ifindex = -1;
+	config->client_ifindex = -1;
+	config->server_ifindex = -1;
 	config->max_stream_num = 2000; // XXX
 	//config->worker_num = 8;
 
@@ -67,11 +69,12 @@ int fire_init_ioengine()
 		exit(1);
 	}
 
+	/* client side interface */
 	for (i = 0; i < num_devices; i ++) {
-		if (strcmp(config->interface, devices[i].name) != 0)
+		if (strcmp(config->client_interface, devices[i].name) != 0)
 			continue;
 		ifindex = devices[i].ifindex;
-		memcpy(&(config->device), &(devices[i]), sizeof(struct ps_device));
+		memcpy(&(config->client_device), &(devices[i]), sizeof(struct ps_device));
 		break;
 	}
 	assert (ifindex != -1);
@@ -80,11 +83,30 @@ int fire_init_ioengine()
 		assert(devices_attached[i] != ifindex);
 	}
 	devices_attached[num_devices_attached] = ifindex;
-	config->ifindex = ifindex;
+	config->client_ifindex = ifindex;
+	num_devices_attached ++;
+
+
+	/* server side interface */
+	for (i = 0; i < num_devices; i ++) {
+		if (strcmp(config->server_interface, devices[i].name) != 0)
+			continue;
+		ifindex = devices[i].ifindex;
+		memcpy(&(config->server_device), &(devices[i]), sizeof(struct ps_device));
+		break;
+	}
+	assert (ifindex != -1);
+
+	for (i = 0; i < num_devices_attached; i ++) {
+		//assert(devices_attached[i] != ifindex);
+	}
+	devices_attached[num_devices_attached] = ifindex;
+	config->server_ifindex = ifindex;
+	//config->client_ifindex = ifindex;
 	num_devices_attached ++;
 
     /* There are the same number of queues and workers */
-    config->worker_num = (config->device).num_rx_queues; 
+    config->worker_num = devices[0].num_rx_queues; 
 
 	return 0;
 }
@@ -117,8 +139,8 @@ void stop_signal_handler(int signal)
 		cc = &(workers[i]);
 		subtime = cc->subtime;
 
-		total_rx_packets = (cc->handle).rx_packets[config->ifindex];
-		total_rx_bytes = (cc->handle).rx_bytes[config->ifindex];
+		total_rx_packets = (cc->client_handle).rx_packets[config->client_ifindex];
+		total_rx_bytes = (cc->client_handle).rx_bytes[config->client_ifindex];
 		speed_handle += (double)((total_rx_bytes + total_rx_packets * 20) * 8) / (double) ((subtime.tv_sec * 1000000 + subtime.tv_usec) * 1000);
 
 		printf("----------\n");

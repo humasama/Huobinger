@@ -20,7 +20,7 @@ struct skbuff {
 
 int tcp_init(int);
 void tcp_exit();
-void process_tcp(u_char *, int);
+int process_tcp(u_char *, int);
 void process_icmp(u_char *);
 void tcp_check_timeouts(struct timeval *);
 

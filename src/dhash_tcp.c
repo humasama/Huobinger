@@ -705,7 +705,7 @@ tcp_exit()
 	return;
 }
 
-void
+int
 process_tcp(u_char * data, int skblen)
 {
 	tcp_context_t *tcp_thread_local_p = pthread_getspecific(tcp_context);
@@ -721,21 +721,21 @@ process_tcp(u_char * data, int skblen)
 	//  ugly_iphdr = this_iphdr;
 	iplen = ntohs(this_iphdr->ip_len);
 	if ((unsigned)iplen < 4 * this_iphdr->ip_hl + sizeof(struct tcphdr)) {
-		return;
+		return -1;
 	} // ktos sie bawi
 
 	datalen = iplen - 4 * this_iphdr->ip_hl - 4 * this_tcphdr->th_off;
 
 	if (datalen < 0) {
-		return;
+		return -1;
 	} // ktos sie bawi
 
 	if ((this_iphdr->ip_src.s_addr | this_iphdr->ip_dst.s_addr) == 0) {
-		return;
+		return -1;
 	}
 	//  if (!(this_tcphdr->th_flags & TH_ACK))
 	//    detect_scan(this_iphdr);
-	if (!nids_params.n_tcp_streams) return;
+	if (!nids_params.n_tcp_streams) return -1;
 	
 #if 0
 	{
@@ -768,7 +768,7 @@ process_tcp(u_char * data, int skblen)
 				!(this_tcphdr->th_flags & TH_ACK) &&
 				!(this_tcphdr->th_flags & TH_RST))
 			add_new_tcp(this_tcphdr, this_iphdr);
-		return;
+		return TCP_SYN_SENT;
 	}
 
 #if 0
@@ -795,9 +795,9 @@ process_tcp(u_char * data, int skblen)
 	if ((this_tcphdr->th_flags & TH_SYN)) {
 		if (from_client || a_tcp->client.state != TCP_SYN_SENT ||
 				a_tcp->server.state != TCP_CLOSE || !(this_tcphdr->th_flags & TH_ACK))
-			return;
+			return -1;
 		if (a_tcp->client.seq != ntohl(this_tcphdr->th_ack))
-			return;
+			return -1;
 		a_tcp->server.state = TCP_SYN_RECV;
 		a_tcp->server.seq = ntohl(this_tcphdr->th_seq) + 1;
 		a_tcp->server.first_data_seq = a_tcp->server.seq;
@@ -819,7 +819,7 @@ process_tcp(u_char * data, int skblen)
 			a_tcp->server.wscale_on = 0;	
 			a_tcp->server.wscale = 1;
 		}	
-		return;
+		return TCP_SYN_RECV;
 	}
 	//  printf("datalen = %d, th_seq = %d, ack_seq = %d, window = %d, wscale = %d\n",
 	//	  	datalen, this_tcphdr->th_seq, rcv->ack_seq, rcv->window, rcv->wscale);
@@ -830,7 +830,7 @@ process_tcp(u_char * data, int skblen)
 			  before(ntohl(this_tcphdr->th_seq) + datalen, rcv->ack_seq)  
 			)
 	   )    { 
-		return;
+		return -1;
 	}
 
 	if ((this_tcphdr->th_flags & TH_RST)) {
@@ -842,13 +842,13 @@ process_tcp(u_char * data, int skblen)
 				(i->item) (a_tcp, &i->data);
 		}
 		nids_free_tcp_stream(a_tcp);
-		return;
+		return 0;
 	}
 
 	/* PAWS check */
 	if (rcv->ts_on && get_ts(this_tcphdr, &tmp_ts) && 
 			before(tmp_ts, snd->curr_ts))
-		return; 	
+		return -1;
 
 	if ((this_tcphdr->th_flags & TH_ACK)) {
 		if (from_client && a_tcp->client.state == TCP_SYN_SENT &&
@@ -903,13 +903,13 @@ process_tcp(u_char * data, int skblen)
 
 					if (!a_tcp->listeners) {
 						nids_free_tcp_stream(a_tcp);
-						return;
+						return 0;
 					}
 #endif
 					a_tcp->nids_state = NIDS_DATA;
 				}
 			}
-			// return;
+			return TCP_ESTABLISHED;
 		}
 	}
 	if ((this_tcphdr->th_flags & TH_ACK)) {
@@ -923,7 +923,7 @@ process_tcp(u_char * data, int skblen)
 			for (i = a_tcp->listeners; i; i = i->next)
 				(i->item) (a_tcp, &i->data);
 			nids_free_tcp_stream(a_tcp);
-			return;
+			return 0;
 		}
 	}
 	if (datalen + (this_tcphdr->th_flags & TH_FIN) > 0)
@@ -937,5 +937,6 @@ process_tcp(u_char * data, int skblen)
 	if (!a_tcp->listeners)
 		nids_free_tcp_stream(a_tcp);
 #endif
+	return 0;
 }
 #endif

@@ -28,6 +28,21 @@ extern fire_config_t *config;
 char * buffer[MAX_WORKER_NUM];
 int buf_size = 500000000;
 
+/* FIXME: a dirty copy form netinet/tcp.h */
+enum {
+  TCP_ESTABLISHED = 1,
+  TCP_SYN_SENT,
+  TCP_SYN_RECV,
+  TCP_FIN_WAIT1,
+  TCP_FIN_WAIT2,
+  TCP_TIME_WAIT,
+  TCP_CLOSE,
+  TCP_CLOSE_WAIT,
+  TCP_LAST_ACK,
+  TCP_LISTEN,
+  TCP_CLOSING			/* now a valid state */
+};
+
 int fire_worker_init(fire_worker_context_t *context)
 {
 	buffer[context->queue_id] = (char *)malloc(buf_size);
@@ -76,7 +91,7 @@ char *get_ptr(int id, int length)
 	return ptr;
 }
 
-int form_packet(char *data, int len,int queue_id)
+int form_syn_response(char *data, int len)
 {
 	struct ethhdr *ethh;
 	struct iphdr *iph;
@@ -103,6 +118,10 @@ int form_packet(char *data, int len,int queue_id)
 		udph = (struct udphdr *)((uint32_t *)iph + iph->ihl);
 		tcph = (struct tcphdr *)((uint32_t *)iph + iph->ihl);
 
+		uint32_t tmp = iph->saddr;
+		iph->saddr = iph->daddr;
+		iph->daddr = tmp;
+
 		/* Do checksum */
 		iph->check = 0;
 		checksum = ip_fast_csum((unsigned char *)iph, iph->ihl);
@@ -119,12 +138,20 @@ int form_packet(char *data, int len,int queue_id)
 		payload_ptr = (char *)tcph + tcph->doff * 4;
 		payload_len = len - (payload_ptr - data);
 
+		/* TODO: there will be a mapping between sequence
+			number of p-c and s-p connection, the sequence difference
+			will be stored in the TCB, and code should be added, but not here
+		*/ 
+		tcph->ack_seq = tcph->seq + 1;
+		tcph->seq = 0;
+
 		tcph->check = 0;
 		checksum = my_tcp_check((void *)tcph, len - ((char *)tcph - data),
 			iph->saddr, iph->daddr);
 		tcph->check = ~checksum;
 		break;
 	case IPPROTO_UDP:
+		fprint(ERROR, "a udp packet?\n");
 		payload_ptr = (char *)udph + 8;
 		payload_len = len - (payload_ptr - data);
 
@@ -134,12 +161,10 @@ int form_packet(char *data, int len,int queue_id)
 		udph->check = ~checksum;
 		break;
 	default:
-		fprint(ERROR, "protocol %d ", proto_in_ip);
+		fprint(ERROR, "protocol %d\n", proto_in_ip);
 		break;
 	}
 
-	char *pp = get_ptr(queue_id, payload_len);
-	memcpy(payload_ptr, pp, payload_len);
 done:
 	return 0;
 }
@@ -152,32 +177,54 @@ int process_packet(char *eth_data, int len)
 
 int fire_worker_start(int queue_id)
 {
-	int ret, i, prot, send_ret;
+	int ret, i, j, k, prot, send_ret;
 
 	fire_worker_t *cc = &(workers[queue_id]); 
-	assert(ps_init_handle(&(cc->handle)) == 0);
+	assert(ps_init_handle(&(cc->server_handle)) == 0);
+	assert(ps_init_handle(&(cc->client_handle)) == 0);
 
-	struct ps_queue queue;
-	queue.ifindex = config->ifindex;
-	queue.qidx = queue_id;
+	struct ps_queue server_queue, client_queue;
+	server_queue.ifindex = config->server_ifindex;
+	server_queue.qidx = queue_id;
+	client_queue.ifindex = config->client_ifindex;
+	client_queue.qidx = queue_id;
 
-	assert(ps_attach_rx_device(&(cc->handle), &queue) == 0);
+	assert(ps_attach_rx_device(&(cc->server_handle), &server_queue) == 0);
+	assert(ps_attach_rx_device(&(cc->client_handle), &client_queue) == 0);
 
-	struct ps_chunk chunk, send_chunk;
-	assert(ps_alloc_chunk(&(cc->handle), &chunk) == 0);
-	assert(ps_alloc_chunk(&(cc->handle), &send_chunk) == 0);
+	struct ps_chunk client_chunk, send_client_chunk, server_chunk, send_server_chunk;
+	assert(ps_alloc_chunk(&(cc->client_handle), &client_chunk) == 0);
+	assert(ps_alloc_chunk(&(cc->client_handle), &send_client_chunk) == 0);
+	assert(ps_alloc_chunk(&(cc->server_handle), &server_chunk) == 0);
+	assert(ps_alloc_chunk(&(cc->server_handle), &send_server_chunk) == 0);
+
+	client_chunk.queue.ifindex = config->client_ifindex;
+	client_chunk.queue.qidx = queue_id;
+	send_client_chunk.queue.ifindex = config->client_ifindex;
+	send_client_chunk.queue.qidx = queue_id;
+	server_chunk.queue.ifindex = config->server_ifindex;
+	server_chunk.queue.qidx = queue_id;
+	send_server_chunk.queue.ifindex = config->server_ifindex;
+	send_server_chunk.queue.qidx = queue_id;
+
+	int num_pkt_to_client = 0, num_pkt_to_server = 0;
 
 	gettimeofday(&(cc->startime), NULL);
 
 	for (;;) {
-		chunk.cnt = config->io_batch_num;
-		chunk.recv_blocking = 1;
+		num_pkt_to_client = 0;
+		num_pkt_to_server = 0;
+		j = 0;
+		k = 0;
 
-		ret = ps_recv_chunk(&(cc->handle), &chunk);
-		if (ret < 0) {
+		client_chunk.cnt = config->io_batch_num;
+		client_chunk.recv_blocking = 0;
+
+		ret = ps_recv_chunk(&(cc->client_handle), &client_chunk);
+		if (ret <= 0) {
 			if (errno == EINTR)
 				continue;
-			if (!chunk.recv_blocking && errno == EWOULDBLOCK) {
+			if (!client_chunk.recv_blocking && errno == EWOULDBLOCK) {
 				fprint(ERROR, "!!! [Worker %d] : recv nothing\n", queue_id);
 				assert(0);
 			}
@@ -186,73 +233,114 @@ int fire_worker_start(int queue_id)
 
 		cc->total_packets += ret;
 
-#if 0
-		for (i = 0; i < ret; i ++) {
-			cc->total_bytes += chunk.info[i].len; 
-		}
-		chunk.cnt = ret;
-		send_ret = ps_send_chunk(&(cc->handle), &chunk);
-		continue;
-#else
-		int j = 0;
 		for (i = 0; i < ret; i ++) {
 			
-			prot = process_packet(chunk.buf + chunk.info[i].offset, chunk.info[i].len);
-			if (prot == -1) {
-				fprint(WARN, "Is IP fragment or bad packet, not forwarding\n");
-				exit(0);
-				continue;
+			prot = process_packet(client_chunk.buf + client_chunk.info[i].offset, client_chunk.info[i].len);
+			switch (prot) {
+				case TCP_SYN_SENT:
+					// first handshake packet
+					// construct the response, and send back to client
+					fprint(INFO, "1) TCP_SYN_SENT\n");
+					send_client_chunk.info[j].len = client_chunk.info[i].len;
+					send_client_chunk.info[j].offset = j * PS_MAX_PACKET_SIZE;
+					memcpy(send_client_chunk.buf + send_client_chunk.info[j].offset,
+						client_chunk.buf + client_chunk.info[i].offset, client_chunk.info[i].len);
+					form_syn_response(send_client_chunk.buf + send_client_chunk.info[j].offset,
+						send_client_chunk.info[j].len);
+					assert(TCP_SYN_RECV == process_packet(send_client_chunk.buf 
+						+ send_client_chunk.info[j].offset, send_client_chunk.info[j].len));
+					fprint(INFO, "2) TCP_SYN_RECV\n");
+					j ++;
+					break;
+
+				case TCP_ESTABLISHED:
+					// the 3rd handshake packet
+					// do nothing and wait for client's real request
+					fprint(INFO, "3) TCP_ESTABLISHED\n");
+					break;
+
+				default:
+					// normal packet, send to server
+					fprint(INFO, "4) Normal packet, send to server\n");
+					send_server_chunk.info[k].len = client_chunk.info[i].len;
+					send_server_chunk.info[k].offset = k * PS_MAX_PACKET_SIZE;
+					memcpy(send_server_chunk.buf + send_server_chunk.info[k].offset,
+						client_chunk.buf + client_chunk.info[i].offset, client_chunk.info[i].len);
+					k ++;
+					break;
 			}
-			
 
-			//simple_process(chunk.buf + chunk.info[i].offset, chunk.info[i].len, 0);
-			cc->total_bytes += chunk.info[i].len; 
-#if 1
-			send_chunk.info[j].len = chunk.info[i].len;
-			send_chunk.info[j].offset = j * PS_MAX_PACKET_SIZE;
-			memcpy(send_chunk.buf + send_chunk.info[j].offset,
-				chunk.buf + chunk.info[i].offset, chunk.info[i].len);
+			cc->total_bytes += client_chunk.info[i].len; 
 
-			form_packet(send_chunk.buf + send_chunk.info[j].offset, send_chunk.info[j].len, queue_id);
-
-			j++;
-#endif
 		}
 	
-#if 1
-		if (j == 0) {
-			fprint(ERROR, "Sending 0 packets\n");
-			continue;
-		}
-		send_chunk.recv_blocking = 1;
-		send_chunk.queue.ifindex = config->ifindex; 
-		send_chunk.queue.qidx = queue_id;
-
-		// FIXME: cannot send all packets
-		fprint(DEBUG, "sending packet, queue_id %d, num %d, index %d\n", queue_id, j, config->ifindex);
-		send_chunk.cnt = j;
-		send_ret = ps_send_chunk(&(cc->handle), &send_chunk);
+		fprint(DEBUG, "sending packet, queue_id %d, num %d, index %d\n", queue_id, ret, config->client_ifindex);
+		send_client_chunk.cnt = j;
+		send_ret = ps_send_chunk(&(cc->client_handle), &send_client_chunk);
 		if (send_ret < 0)
 			fprint(ERROR, "send packet fail, ret = %d\n", send_ret);
-		/*
-		while (j > 0) {
-			send_chunk.cnt = j;
+
+		//FIXME: different handle for client and server?
+		send_server_chunk.cnt = k;
+		send_ret = ps_send_chunk(&(cc->server_handle), &send_server_chunk);
+		if (send_ret < 0)
+			fprint(ERROR, "send packet fail, ret = %d\n", send_ret);
+#if 0
+		/* FIXME: cannot send all packets
+		while (ret > 0) {
+			chunk.cnt = ret;
 			send_ret = ps_send_chunk(&(cc->handle), &send_chunk);
 			if (send_ret < 0)
 				fprint(ERROR, "send packet fail, ret = %d\n", send_ret);
-			j -= send_ret;
+			ret -= send_ret;
 			//assert(ret >= 0);
 		}*/
 #endif
-#endif
+		
+		/*----------------------------------------------------------------------------------*/
+		/* Now process server side packet*/
+		server_chunk.cnt = config->io_batch_num;
+		server_chunk.recv_blocking = 0;
+		j = 0;
+
+		ret = ps_recv_chunk(&(cc->server_handle), &server_chunk);
+		if (ret <= 0) {
+			if (errno == EINTR)
+				continue;
+			if (!server_chunk.recv_blocking && errno == EWOULDBLOCK) {
+				fprint(ERROR, "!!! [Worker %d] : recv nothing\n", queue_id);
+				assert(0);
+			}
+			assert(0);
+		}
+
+		for (i = 0; i < ret; i ++) {
+			prot = process_packet(server_chunk.buf + server_chunk.info[i].offset, server_chunk.info[i].len);
+			if (prot = 0) {
+				send_client_chunk.info[j].len = server_chunk.info[i].len;
+				send_client_chunk.info[j].offset = j * PS_MAX_PACKET_SIZE;
+				memcpy(send_client_chunk.buf + send_client_chunk.info[j].offset,
+					server_chunk.buf + server_chunk.info[i].offset, server_chunk.info[i].len);
+				j ++;
+			} else {
+				fprint(ERROR, "wrong packet from server\n");
+			}
+		}
+
+		fprint(DEBUG, "sending packet, queue_id %d, num %d, index %d\n", queue_id, ret, config->client_ifindex);
+		send_client_chunk.cnt = j;
+		send_ret = ps_send_chunk(&(cc->client_handle), &send_client_chunk);
+		if (send_ret < 0)
+			fprint(ERROR, "send packet fail, ret = %d\n", send_ret);
 	}
 	return 0;
 }
 
 void *fire_worker_main(fire_worker_context_t *context) 
 {
-	fprint(INFO, "[Worker %d] on core %d is attaching if:queue %d:%d ...\n", 
-		context->queue_id, context->core_id, config->ifindex, context->queue_id);
+	fprint(INFO, "[Worker %d] on core %d is attaching client if:queue %d:%d, server if:queue %d:%d ...\n", 
+		context->queue_id, context->core_id, config->client_ifindex, context->queue_id,
+		config->server_ifindex, context->queue_id);
 	fire_worker_init(context);
 	fire_worker_start(context->queue_id);
 

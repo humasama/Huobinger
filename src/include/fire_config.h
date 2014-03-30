@@ -8,9 +8,12 @@ typedef struct fire_config_s {
 
 	int max_stream_num;
 	int io_batch_num;
-	int ifindex;
-	char interface[5];
-	struct ps_device device;
+	int client_ifindex;
+	int server_ifindex;
+	char client_interface[5];
+	char server_interface[5];
+	struct ps_device client_device;
+	struct ps_device server_device;
 } fire_config_t;
 
 #endif
