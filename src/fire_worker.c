@@ -222,13 +222,8 @@ int fire_worker_start(int queue_id)
 
 		ret = ps_recv_chunk(&(cc->client_handle), &client_chunk);
 		if (ret <= 0) {
-			if (errno == EINTR)
-				continue;
-			if (!client_chunk.recv_blocking && errno == EWOULDBLOCK) {
-				fprint(ERROR, "!!! [Worker %d] : recv nothing\n", queue_id);
-				assert(0);
-			}
-			assert(0);
+			/* Receive nothing from server, go to the start of the loop to process client again */
+			goto process_server;
 		}
 
 		cc->total_packets += ret;
@@ -274,17 +269,20 @@ int fire_worker_start(int queue_id)
 
 		}
 	
-		fprint(DEBUG, "sending packet, queue_id %d, num %d, index %d\n", queue_id, ret, config->client_ifindex);
-		send_client_chunk.cnt = j;
-		send_ret = ps_send_chunk(&(cc->client_handle), &send_client_chunk);
-		if (send_ret < 0)
-			fprint(ERROR, "send packet fail, ret = %d\n", send_ret);
+		if (j > 0) {
+			fprint(DEBUG, "sending packet, queue_id %d, num %d, index %d\n", queue_id, ret, config->client_ifindex);
+			send_client_chunk.cnt = j;
+			send_ret = ps_send_chunk(&(cc->client_handle), &send_client_chunk);
+			if (send_ret < 0)
+				fprint(ERROR, "send packet fail, ret = %d\n", send_ret);
+		}
 
-		//FIXME: different handle for client and server?
-		send_server_chunk.cnt = k;
-		send_ret = ps_send_chunk(&(cc->server_handle), &send_server_chunk);
-		if (send_ret < 0)
-			fprint(ERROR, "send packet fail, ret = %d\n", send_ret);
+		if (k > 0) {
+			send_server_chunk.cnt = k;
+			send_ret = ps_send_chunk(&(cc->server_handle), &send_server_chunk);
+			if (send_ret < 0)
+				fprint(ERROR, "send packet fail, ret = %d\n", send_ret);
+		}
 #if 0
 		/* FIXME: cannot send all packets
 		while (ret > 0) {
@@ -296,7 +294,8 @@ int fire_worker_start(int queue_id)
 			//assert(ret >= 0);
 		}*/
 #endif
-		
+
+process_server:
 		/*----------------------------------------------------------------------------------*/
 		/* Now process server side packet*/
 		server_chunk.cnt = config->io_batch_num;
@@ -307,11 +306,8 @@ int fire_worker_start(int queue_id)
 		if (ret <= 0) {
 			if (errno == EINTR)
 				continue;
-			if (!server_chunk.recv_blocking && errno == EWOULDBLOCK) {
-				fprint(ERROR, "!!! [Worker %d] : recv nothing\n", queue_id);
-				assert(0);
-			}
-			assert(0);
+			/* Receive nothing from server, go to the start of the loop to process client again */
+			continue;
 		}
 
 		for (i = 0; i < ret; i ++) {
@@ -327,11 +323,13 @@ int fire_worker_start(int queue_id)
 			}
 		}
 
-		fprint(DEBUG, "sending packet, queue_id %d, num %d, index %d\n", queue_id, ret, config->client_ifindex);
-		send_client_chunk.cnt = j;
-		send_ret = ps_send_chunk(&(cc->client_handle), &send_client_chunk);
-		if (send_ret < 0)
-			fprint(ERROR, "send packet fail, ret = %d\n", send_ret);
+		if (j > 0) {
+			fprint(DEBUG, "sending packet, queue_id %d, num %d, index %d\n", queue_id, ret, config->client_ifindex);
+			send_client_chunk.cnt = j;
+			send_ret = ps_send_chunk(&(cc->client_handle), &send_client_chunk);
+			if (send_ret < 0)
+				fprint(ERROR, "send packet fail, ret = %d\n", send_ret);
+		}
 	}
 	return 0;
 }
