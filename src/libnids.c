@@ -255,5 +255,6 @@ static int gen_ip_frag_proc(struct ip * data, int len)
 
 int nids_process(void *ip_data, int len)
 {
-	return gen_ip_frag_proc((struct ip *)ip_data, len);
+	int ret = gen_ip_frag_proc((struct ip *)ip_data, len);
+	return ret;
 }

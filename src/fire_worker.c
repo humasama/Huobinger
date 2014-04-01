@@ -142,8 +142,12 @@ int form_syn_response(char *data, int len)
 			number of p-c and s-p connection, the sequence difference
 			will be stored in the TCB, and code should be added, but not here
 		*/ 
-		tcph->ack_seq = tcph->seq + 1;
+		tcph->ack_seq = htonl(ntohl(tcph->seq) + 1);
 		tcph->seq = 0;
+		uint16_t tmp_port = tcph->source;
+		tcph->source = tcph->dest;
+		tcph->dest = tmp_port;
+		tcph->ack = 1;
 
 		tcph->check = 0;
 		checksum = my_tcp_check((void *)tcph, len - ((char *)tcph - data),
@@ -172,7 +176,8 @@ done:
 int process_packet(char *eth_data, int len)
 {
 	struct ethhdr *ethh = (struct ethhdr *)eth_data;
-	return nids_process((void *)(ethh + 1), len);
+	int ret = nids_process((void *)(ethh + 1), len);
+	return ret;
 }
 
 int fire_worker_start(int queue_id)
@@ -208,6 +213,7 @@ int fire_worker_start(int queue_id)
 	send_server_chunk.queue.qidx = queue_id;
 
 	int num_pkt_to_client = 0, num_pkt_to_server = 0;
+	int pret;
 
 	gettimeofday(&(cc->startime), NULL);
 
@@ -218,7 +224,7 @@ int fire_worker_start(int queue_id)
 		k = 0;
 
 		client_chunk.cnt = config->io_batch_num;
-		client_chunk.recv_blocking = 0;
+		client_chunk.recv_blocking = 1;
 
 		ret = ps_recv_chunk(&(cc->client_handle), &client_chunk);
 		if (ret <= 0) {
@@ -242,8 +248,9 @@ int fire_worker_start(int queue_id)
 						client_chunk.buf + client_chunk.info[i].offset, client_chunk.info[i].len);
 					form_syn_response(send_client_chunk.buf + send_client_chunk.info[j].offset,
 						send_client_chunk.info[j].len);
-					assert(TCP_SYN_RECV == process_packet(send_client_chunk.buf 
-						+ send_client_chunk.info[j].offset, send_client_chunk.info[j].len));
+					pret = process_packet(send_client_chunk.buf 
+						+ send_client_chunk.info[j].offset, send_client_chunk.info[j].len);
+					assert(pret == TCP_SYN_RECV);
 					fprint(INFO, "2) TCP_SYN_RECV\n");
 					j ++;
 					break;
@@ -270,7 +277,7 @@ int fire_worker_start(int queue_id)
 		}
 	
 		if (j > 0) {
-			fprint(DEBUG, "sending packet, queue_id %d, num %d, index %d\n", queue_id, ret, config->client_ifindex);
+			fprint(INFO, "sending %d SYN/ACK packet to client, queue_id %d, ifindex %d\n", j, queue_id, config->client_ifindex);
 			send_client_chunk.cnt = j;
 			send_ret = ps_send_chunk(&(cc->client_handle), &send_client_chunk);
 			if (send_ret < 0)
@@ -278,6 +285,7 @@ int fire_worker_start(int queue_id)
 		}
 
 		if (k > 0) {
+			fprint(INFO, "sending %d packets of established connection to server, queue_id %d, ifindex %d\n", k, queue_id, config->server_ifindex);
 			send_server_chunk.cnt = k;
 			send_ret = ps_send_chunk(&(cc->server_handle), &send_server_chunk);
 			if (send_ret < 0)
