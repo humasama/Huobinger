@@ -320,7 +320,7 @@ process_server:
 
 		for (i = 0; i < ret; i ++) {
 			prot = process_packet(server_chunk.buf + server_chunk.info[i].offset, server_chunk.info[i].len);
-			if (prot = 0) {
+			if (prot == 0) {
 				send_client_chunk.info[j].len = server_chunk.info[i].len;
 				send_client_chunk.info[j].offset = j * PS_MAX_PACKET_SIZE;
 				memcpy(send_client_chunk.buf + send_client_chunk.info[j].offset,
