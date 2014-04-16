@@ -21,9 +21,16 @@
 #include "fire_config.h"
 #include "fire_common.h"
 #include "psio.h"
+#include "hipac.h"
 
+#define NOSYNATTACK
+#define HIPAC
 fire_worker_t workers[MAX_WORKER_NUM];
 extern fire_config_t *config;
+
+#ifdef HIPAC
+extern struct rlp *l;
+#endif
 
 char * buffer[MAX_WORKER_NUM];
 int buf_size = 500000000;
@@ -217,6 +224,10 @@ int fire_worker_start(int queue_id)
 
 	gettimeofday(&(cc->startime), NULL);
 
+#ifdef NOSYNATTACK
+	int nosyn_test = 0;
+#endif
+
 	for (;;) {
 		num_pkt_to_client = 0;
 		num_pkt_to_server = 0;
@@ -234,25 +245,31 @@ int fire_worker_start(int queue_id)
 
 		cc->total_packets += ret;
 
+		int action;
+
 		for (i = 0; i < ret; i ++) {
-			
+
 			prot = process_packet(client_chunk.buf + client_chunk.info[i].offset, client_chunk.info[i].len);
 			switch (prot) {
 				case TCP_SYN_SENT:
-					// first handshake packet
-					// construct the response, and send back to client
-					fprint(INFO, "1) TCP_SYN_SENT\n");
-					send_client_chunk.info[j].len = client_chunk.info[i].len;
-					send_client_chunk.info[j].offset = j * PS_MAX_PACKET_SIZE;
-					memcpy(send_client_chunk.buf + send_client_chunk.info[j].offset,
-						client_chunk.buf + client_chunk.info[i].offset, client_chunk.info[i].len);
-					form_syn_response(send_client_chunk.buf + send_client_chunk.info[j].offset,
-						send_client_chunk.info[j].len);
-					pret = process_packet(send_client_chunk.buf 
-						+ send_client_chunk.info[j].offset, send_client_chunk.info[j].len);
-					assert(pret == TCP_SYN_RECV);
-					fprint(INFO, "2) TCP_SYN_RECV\n");
-					j ++;
+					action = HiPAC(client_chunk.buf + client_chunk.info[i].offset, client_chunk.info[i].len, l);
+					if(action == FORWARD) {
+						// first handshake packet
+						// construct the response, and send back to client
+						fprint(INFO, "1) TCP_SYN_SENT\n");
+						send_client_chunk.info[j].len = client_chunk.info[i].len;
+						send_client_chunk.info[j].offset = j * PS_MAX_PACKET_SIZE;
+						memcpy(send_client_chunk.buf + send_client_chunk.info[j].offset,
+								client_chunk.buf + client_chunk.info[i].offset, client_chunk.info[i].len);
+						form_syn_response(send_client_chunk.buf + send_client_chunk.info[j].offset,
+								send_client_chunk.info[j].len);
+						pret = process_packet(send_client_chunk.buf 
+								+ send_client_chunk.info[j].offset, send_client_chunk.info[j].len);
+						assert(pret == TCP_SYN_RECV);
+						fprint(INFO, "2) TCP_SYN_RECV\n");
+						j ++;
+					}
+					else fprint(INFO, "DROP PKT\n");
 					break;
 
 				case TCP_ESTABLISHED:
@@ -267,7 +284,7 @@ int fire_worker_start(int queue_id)
 					send_server_chunk.info[k].len = client_chunk.info[i].len;
 					send_server_chunk.info[k].offset = k * PS_MAX_PACKET_SIZE;
 					memcpy(send_server_chunk.buf + send_server_chunk.info[k].offset,
-						client_chunk.buf + client_chunk.info[i].offset, client_chunk.info[i].len);
+							client_chunk.buf + client_chunk.info[i].offset, client_chunk.info[i].len);
 					k ++;
 					break;
 			}
@@ -290,6 +307,11 @@ int fire_worker_start(int queue_id)
 			send_ret = ps_send_chunk(&(cc->server_handle), &send_server_chunk);
 			if (send_ret < 0)
 				fprint(ERROR, "send packet fail, ret = %d\n", send_ret);
+
+#ifdef NOSYNATTACK
+				nosyn_test = 1;
+#endif
+
 		}
 #if 0
 		/* FIXME: cannot send all packets
@@ -307,7 +329,14 @@ process_server:
 		/*----------------------------------------------------------------------------------*/
 		/* Now process server side packet*/
 		server_chunk.cnt = config->io_batch_num;
-		server_chunk.recv_blocking = 0;
+		//server_chunk.recv_blocking = 0;	//modify for test -- huma
+#ifdef NOSYNATTACK
+		if(nosyn_test) {
+			server_chunk.recv_blocking = 1;
+		}
+		else
+			server_chunk.recv_blocking = 0;
+#endif
 		j = 0;
 
 		ret = ps_recv_chunk(&(cc->server_handle), &server_chunk);

@@ -27,11 +27,18 @@
 #include "fire_common.h"
 #include "fire_worker.h"
 #include "psio.h"
+#include "hipac.h"
+
+#define HIPAC
 
 extern fire_worker_t workers[MAX_WORKER_NUM];
 extern pthread_key_t ip_context;
 extern pthread_key_t tcp_context;
 fire_config_t *config;
+
+#ifdef HIPAC
+struct rlp *l;  
+#endif
 
 //int affinity_array[12] = {1,3,5,7,9,11,0,2,4,6,8,10};
 int affinity_array[12] = {0,2,4,6,8,10,1,3,5,7,9,11};
@@ -186,6 +193,12 @@ int fire_launch_workers()
 #else
 	fprint(ERROR, "No affinity scheme selected\n");
 	exit(0);
+#endif
+
+#ifdef HIPAC
+	l = (struct rlp*)malloc(sizeof(struct rlp));
+	l->rangeArray = (struct rlp_range *) malloc (sizeof(struct rlp_range) * 2);	//1 ~ 2N+2
+	init_rlp_tree(l);
 #endif
 
 	for (i = 0; i < config->worker_num; i ++) {

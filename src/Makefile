@@ -6,10 +6,12 @@ CFLAGS		= -g -D__USE_GNU -D_BSD_SOURCE
 CFLAGS		+= -DLIBNET_VER=-1 -DHAVE_ICMPHDR=1 -DHAVE_TCP_STATES=1 -DHAVE_BSD_UDPHDR=1 
 CFLAGS		+= $(FIRE_CONFIGS) -DFIRE_PRINT_LEVEL=$(PRINT_LEVEL)
 
-LIBS = -lrt -lnuma -L../Packet-IO-Engine/lib -lpsio -lpthread
+#LIBS = -lrt -lnuma -L../Packet-IO-Engine/lib -lpsio -lpthread
+LIBS = -lrt -lnuma -L../Packet-IO-Engine/lib -lpsio -L../HiPAC -lhipac -lpthread
 
 HEADER_DIR = ./include 
 IOENGINE_DIR = ../Packet-IO-Engine/include
+HIPAC_DIR = ../HiPAC/include
 OBJECT_DIR = objs
 TARGET_DIR = .
 
@@ -32,7 +34,7 @@ $(OBJECT_DIR):
 
 
 $(OBJECT_DIR)/%.o : %.c
-	$(CC) $(CFLAGS) -I $(HEADER_DIR) -I $(IOENGINE_DIR) -c $< -o $@ -pg
+	$(CC) $(CFLAGS) -I $(HEADER_DIR) -I $(IOENGINE_DIR) -I $(HIPAC_DIR) -c $< -o $@ -pg
 
 .PHONY : clean
 clean:
