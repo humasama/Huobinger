@@ -481,7 +481,8 @@ void tcp_connect(int cpu, struct ps_queue *queue)
 	assert(FW_IO_BATCH_NUM <= 4096);
 
 	i = 0;
-	for(; i < FW_IO_BATCH_NUM; i++) {
+	int sum = pkt_num > FW_IO_BATCH_NUM ? FW_IO_BATCH_NUM : pkt_num;
+	for(; i < sum; i++) {
 		chunk.info[i].offset = i * PS_ALIGN(pktlen, 64);
 		chunk.info[i].len = pktlen;   
 		memcpy(chunk.buf + chunk.info[i].offset, pktdata, pktlen);
