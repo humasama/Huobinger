@@ -770,6 +770,9 @@ process_tcp(u_char * data, int skblen)
 			add_new_tcp(this_tcphdr, this_iphdr);
 		return TCP_SYN_SENT;
 	}
+	else{
+		return -1;
+	}
 
 #if 0
 	if (!((a_tcp->addr.source == this_tcphdr->th_sport &&

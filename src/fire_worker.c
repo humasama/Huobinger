@@ -277,6 +277,9 @@ int fire_worker_start(int queue_id)
 					// do nothing and wait for client's real request
 					fprint(INFO, "3) TCP_ESTABLISHED\n");
 					break;
+				case -1:
+					fprint(INFO, "error pkt\n");
+					break;
 
 				default:
 					// normal packet, send to server
