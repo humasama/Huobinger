@@ -766,12 +766,10 @@ process_tcp(u_char * data, int skblen)
 	if (!(a_tcp = find_stream(this_tcphdr, this_iphdr, &from_client))) {
 		if ((this_tcphdr->th_flags & TH_SYN) &&
 				!(this_tcphdr->th_flags & TH_ACK) &&
-				!(this_tcphdr->th_flags & TH_RST))
+				!(this_tcphdr->th_flags & TH_RST)){
 			add_new_tcp(this_tcphdr, this_iphdr);
-		return TCP_SYN_SENT;
-	}
-	else{
-		return -1;
+			return TCP_SYN_SENT;
+		}else return -1;
 	}
 
 #if 0
