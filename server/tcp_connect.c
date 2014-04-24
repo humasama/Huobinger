@@ -222,7 +222,7 @@ void build_connect_ack(struct ps_chunk *chunk, int num) //just deal data pkt
 
 		tmp_u = ntohl(tcph->seq);
 		tcph->seq = tcph->ack_seq;
-		tcph->ack_seq = htonl(tmp_u + chunk->info[i].len);
+		tcph->ack_seq = htonl(tmp_u + chunk->info[i].len - sizeof(struct ethhdr) - sizeof(struct tcphdr) - 4 * iph->ihl);
 
 #ifdef DEBUG
 		printf("connect ack : seq_s is %u, ack_s is %u. ip_tot is %u,"
