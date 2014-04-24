@@ -294,7 +294,8 @@ void build_ack_pkt(struct ps_chunk *chunk, int num)	// syn ack and data ack
 			//gcvt(cur_t, 28, pkt_t_ptr);	//w
 			*((double *)pkt_t_ptr) = cur_t;
 #endif
-			tcph->ack_seq = htonl(tmp_u + chunk->info[i].len);
+			tcph->ack_seq = htonl(tmp_u + chunk->info[i].len - sizeof(struct ethhdr) - 
+							sizeof(struct tcphdr) - 4 * iph->ihl);
 			tcph->psh = 1;
 		}
 
@@ -339,7 +340,7 @@ void build_req_pkt(struct ps_chunk *chunk)	// request pkts after syn
 
 	for(i = 0; i < chunk->cnt; i++) {
 
-		length  = chunk->info[i].len + 30;
+		length  = chunk->info[i].len + 10;
 		buf = (char *)malloc(sizeof(char) * length);
 		memset(buf, 0, length);
 
@@ -357,7 +358,7 @@ void build_req_pkt(struct ps_chunk *chunk)	// request pkts after syn
                 tcph->source = tcph->dest;
                 tcph->dest = tmp_port;
 
-		iph->tot_len =htons(ntohs(iph->tot_len) + 30);
+		iph->tot_len =htons(ntohs(iph->tot_len) + 10);
 		
 		tmp_u = ntohl(tcph->seq);
 		tcph->seq = tcph->ack_seq;  
