@@ -12,5 +12,5 @@ hipac: hipac.c
 	ar rcs libhipac.a hipac.o
 
 clean:
-	rm -f hipac
+	rm -f hipac libhipac.a hipac.o
 
