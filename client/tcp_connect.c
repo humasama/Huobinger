@@ -563,42 +563,30 @@ int main(int argc, char **argv)
 
 	struct ps_queue *queue = (struct ps_queue*)malloc(sizeof(struct ps_queue));
 	num_cpus = 1;
-	
-	for (i = 0; i < num_cpus; i ++) {
 
-		my_cpu = i;
-		my_queue = i;
-		for (i = 0; i < num_devices_attached; i++) {
+	my_cpu = 0;
+	my_queue = my_cpu;
+	for (i = 0; i < num_devices_attached; i++) {
 
-			if (devices[devices_attached[i]].num_rx_queues <= my_cpu)
-				continue;
+		if (devices[devices_attached[i]].num_rx_queues <= my_cpu)
+			continue;
 
-			if (devices[devices_attached[i]].num_tx_queues <= my_cpu) {
-				printf("WARNING: xge%d has not enough TX queues!\n",
-						devices_attached[i]);
-				continue;
-			}
-
-			queue->ifindex = devices_attached[i];
-			queue->qidx = my_queue;
-			printf("attaching RX queue xge%d : %d to CPU %d\n", queue->ifindex, queue->qidx, my_cpu);
-			break;
+		if (devices[devices_attached[i]].num_tx_queues <= my_cpu) {
+			printf("WARNING: xge%d has not enough TX queues!\n",
+					devices_attached[i]);
+			continue;
 		}
 
-		bind_cpu(i);
-		signal(SIGINT, handle_signal);
-
-		tcp_connect(my_cpu, queue);
-		return 0;
+		queue->ifindex = devices_attached[i];
+		queue->qidx = my_queue;
+		printf("attaching RX queue xge%d : %d to CPU %d\n", queue->ifindex, queue->qidx, my_cpu);
+		break;
 	}
 
-	signal(SIGINT, SIG_IGN);
+	bind_cpu(my_cpu);
+	signal(SIGINT, handle_signal);
 
-	while (1) {
-		int ret = wait(NULL);
-		if (ret == -1 && errno == ECHILD)
-			break;
-	}
-
+	tcp_connect(my_cpu, queue);
 	return 0;
+
 }
