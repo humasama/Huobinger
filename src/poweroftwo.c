@@ -714,7 +714,7 @@ process_tcp(u_char * data, int skblen)
 	if ((this_tcphdr->th_flags & TH_SYN)) {
 		if (from_client || a_tcp->client.state != TCP_SYN_SENT ||
 				a_tcp->server.state != TCP_CLOSE || !(this_tcphdr->th_flags & TH_ACK)){
-			fprintf(DEBUG, "5\n");
+			fprint(DEBUG, "5\n");
 			return -1;
 		}
 		if (a_tcp->client.seq != ntohl(this_tcphdr->th_ack)){
