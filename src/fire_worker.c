@@ -277,7 +277,7 @@ int fire_worker_start(int queue_id)
 					if(action == FORWARD) {
 						// first handshake packet
 						// construct the response, and send back to client
-						//fprint(INFO, "1) TCP_SYN_SENT\n");
+						fprint(INFO, "1) TCP_SYN_SENT\n");
 						send_client_chunk.info[j].len = client_chunk.info[i].len;
 						send_client_chunk.info[j].offset = j * PS_MAX_PACKET_SIZE;
 						memcpy(send_client_chunk.buf + send_client_chunk.info[j].offset,
@@ -287,7 +287,7 @@ int fire_worker_start(int queue_id)
 						pret = process_packet(send_client_chunk.buf 
 								+ send_client_chunk.info[j].offset, send_client_chunk.info[j].len);
 						assert(pret == TCP_SYN_RECV);
-						//fprint(INFO, "2) TCP_SYN_RECV\n");
+						fprint(INFO, "2) TCP_SYN_RECV\n");
 						j ++;
 					}
 					else{ 
@@ -299,7 +299,7 @@ int fire_worker_start(int queue_id)
 				case TCP_ESTABLISHED:
 					// the 3rd handshake packet
 					// do nothing and wait for client's real request
-					//fprint(INFO, "3) TCP_ESTABLISHED\n");
+					fprint(INFO, "3) TCP_ESTABLISHED\n");
 					break;
 
 				case -1:
@@ -308,7 +308,7 @@ int fire_worker_start(int queue_id)
 
 				default:
 					// normal packet, send to server
-					//fprint(INFO, "4) Normal packet, send to server\n");
+					fprint(INFO, "4) Normal packet, send to server\n");
 					send_server_chunk.info[k].len = client_chunk.info[i].len;
 					send_server_chunk.info[k].offset = k * PS_MAX_PACKET_SIZE;
 					memcpy(send_server_chunk.buf + send_server_chunk.info[k].offset,
@@ -322,7 +322,7 @@ int fire_worker_start(int queue_id)
 		}
 	
 		if (j > 0) {
-			//fprint(INFO, "sending %d SYN/ACK packet to client, queue_id %d, ifindex %d\n", j, queue_id, config->client_ifindex);
+			fprint(INFO, "sending %d SYN/ACK packet to client, queue_id %d, ifindex %d\n", j, queue_id, config->client_ifindex);
 			send_client_chunk.cnt = j;
 			send_ret = ps_send_chunk(&(cc->client_handle), &send_client_chunk);
 			if (send_ret < 0)
@@ -330,7 +330,7 @@ int fire_worker_start(int queue_id)
 		}
 
 		if (k > 0) {
-			//fprint(INFO, "sending %d packets of established connection to server, queue_id %d, ifindex %d\n", k, queue_id, config->server_ifindex);
+			fprint(INFO, "sending %d packets of established connection to server, queue_id %d, ifindex %d\n", k, queue_id, config->server_ifindex);
 			send_server_chunk.cnt = k;
 			send_ret = ps_send_chunk(&(cc->server_handle), &send_server_chunk);
 			if (send_ret < 0)

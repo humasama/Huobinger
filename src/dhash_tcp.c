@@ -854,7 +854,6 @@ process_tcp(u_char * data, int skblen)
 	//  printf("datalen = %d, th_seq = %d, ack_seq = %d, window = %d, wscale = %d\n",
 	//	  	datalen, this_tcphdr->th_seq, rcv->ack_seq, rcv->window, rcv->wscale);
 	
-	//huma test --tcp seq number check !
 	if (
 			! (  !datalen && ntohl(this_tcphdr->th_seq) == rcv->ack_seq  )
 			&&
@@ -881,7 +880,6 @@ process_tcp(u_char * data, int skblen)
 	}
 
 	/* PAWS check */
-	//huma test
 	/*
 	if (rcv->ts_on && get_ts(this_tcphdr, &tmp_ts) && 
 			before(tmp_ts, snd->curr_ts)){
@@ -953,12 +951,6 @@ process_tcp(u_char * data, int skblen)
 			}
 			return TCP_ESTABLISHED;
 		}
-#if 0
-		else if(!this_tcphdr->th_flags == psh){
-			printf("established fail\n");
-			return -1;
-		}
-#endif
 	}
 	if ((this_tcphdr->th_flags & TH_ACK)) {
 		handle_ack(snd, ntohl(this_tcphdr->th_ack));

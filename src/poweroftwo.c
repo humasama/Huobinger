@@ -18,11 +18,10 @@
 #include "mem.h"
 #include "fire_config.h"
 
-#define COUNTING
-
 
 #if defined(POWEROFTWO)
 
+#define COUNTING
 #define SET_NUMBER 100000 //0.1 Million buckets = 1.6 Million Elem
 #define TOTAL_CACHE_ELEM_NUM 1600000
 
@@ -634,7 +633,7 @@ tcp_exit()
 }
 
 #ifdef HIPAC_ESTABLISHED_POS
-//designed for HiPAC: established
+//designed for HiPAC position: established
 void
 delete_tcb(char *data)	
 {
@@ -772,11 +771,11 @@ process_tcp(u_char * data, int skblen)
 	}
 
 	/* PAWS check */
-#if 0
+/*
 	if (rcv->ts_on && get_ts(this_tcphdr, &tmp_ts) && 
 			before(tmp_ts, snd->curr_ts))
 		return -1;
-#endif
+*/
 
 	if ((this_tcphdr->th_flags & TH_ACK)) {
 		if (from_client && a_tcp->client.state == TCP_SYN_SENT &&
