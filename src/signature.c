@@ -89,7 +89,7 @@ inline void store_sig_l(const sig_type sign, elem_list_type *ptr)
 	ptr->elem.signature = sign;
 }
 
-#if defined (MAJOR_INDEXFREE_TCP)
+#if defined(MAJOR_INDEXFREE_TCP) || defined(POWEROFTWO)
 inline void store_index_l(const idx_type index, elem_list_type *ptr)
 {
 	ptr->index = index;

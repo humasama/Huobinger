@@ -21,7 +21,15 @@
 #include "nids.h"
 #include "hash.h"
 #include "signature.h"
+
+#if defined(POWEROFTWO)
+#include "poweroftwo.h"
+#endif
+
+#if defined(MAJOR_INDEXFREE_TCP)
 #include "dhash_tcp.h"
+#endif
+
 #if 0
 #include "conn_split.h"
 #include "conn_indexfree.h"

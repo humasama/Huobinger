@@ -26,6 +26,10 @@ typedef struct tcp_context_s {
 	elem_list_type **conflict_list;
 #endif
 
+#if defined(POWEROFTWO)
+	int *bucket_count;
+#endif
+
 #if defined(ORIGIN_TCP)
 	struct tcp_stream **tcp_stream_table;
 	struct tcp_stream *free_streams;
