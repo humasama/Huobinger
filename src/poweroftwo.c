@@ -17,7 +17,7 @@
 #include "parallel.h"
 #include "mem.h"
 #include "fire_config.h"
-
+#include "fire_common.h"
 
 #if defined(POWEROFTWO)
 
@@ -664,7 +664,7 @@ process_tcp(u_char * data, int skblen)
 	//  ugly_iphdr = this_iphdr;
 	iplen = ntohs(this_iphdr->ip_len);
 	if ((unsigned)iplen < 4 * this_iphdr->ip_hl + sizeof(struct tcphdr)) {
-		printf("1\n");
+		fprint(DEBUG, "1\n");
 		return -1;
 	} // ktos sie bawi
 
@@ -673,12 +673,12 @@ process_tcp(u_char * data, int skblen)
 	//printf("ip->ip_len is %d, tcp_off is %d, datalen is %d \n", iplen, 4 * this_tcphdr->th_off, datalen);
 
 	if (datalen < 0) {
-		printf("2\n");
+		fprint(DEBUG, "2\n");
 		return -1;
 	} // ktos sie bawi
 
 	if ((this_iphdr->ip_src.s_addr | this_iphdr->ip_dst.s_addr) == 0) {
-		printf("3\n");
+		fprint(DEBUG, "3\n");
 		return -1;
 	}
 	//  if (!(this_tcphdr->th_flags & TH_ACK))
@@ -693,7 +693,7 @@ process_tcp(u_char * data, int skblen)
 			return TCP_SYN_SENT;
 		}
 		else{
-			printf("4\n");
+			fprint(DEBUG, "4\n");
 			return -1;	//no tcb and syn=0 ---> not forward to server
 		}
 	}
@@ -714,11 +714,11 @@ process_tcp(u_char * data, int skblen)
 	if ((this_tcphdr->th_flags & TH_SYN)) {
 		if (from_client || a_tcp->client.state != TCP_SYN_SENT ||
 				a_tcp->server.state != TCP_CLOSE || !(this_tcphdr->th_flags & TH_ACK)){
-			printf("5\n");
+			fprintf(DEBUG, "5\n");
 			return -1;
 		}
 		if (a_tcp->client.seq != ntohl(this_tcphdr->th_ack)){
-			printf("6\n");
+			fprint(DEBUG, "6\n");
 			return -1;
 		}
 		a_tcp->server.state = TCP_SYN_RECV;
@@ -754,7 +754,7 @@ process_tcp(u_char * data, int skblen)
 			  before(ntohl(this_tcphdr->th_seq) + datalen, rcv->ack_seq)  
 			)
 	   )    {
-		printf("7\n");
+		fprint(DEBUG, "7\n");
 		return -1;
 	}
 
