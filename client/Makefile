@@ -1,4 +1,4 @@
-LIBS = -lpsio -lnuma
+LIBS = -lpsio -lnuma -lpthread
 LIB_DIR = -L../../lib
 
 .PHONY: clean
