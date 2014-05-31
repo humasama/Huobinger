@@ -24,8 +24,9 @@ int rule_num;
 void init (struct rlp *root)
 {
 	int dim = 0;
-	printf ("please input the rule number : ");
-	scanf ("%d", &rule_num);
+	//printf ("please input the rule number : ");
+	//scanf ("%d", &rule_num);
+	rule_num = 6;
 
 	struct rlp *tmp = root;
 	tmp->rangeArray = root->rangeArray;
