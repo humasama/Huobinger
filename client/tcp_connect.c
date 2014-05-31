@@ -674,22 +674,6 @@ void tcp_connect(struct param *param_m)
 
 }
 
-/*
-//normal connect: base + 300000 +1 ~ 
-void build_packet(struct ps_chunk *chunk, int index)
-{
-	assert(chunk);
-	char *ip;
-	int i;
-	//uint64_t sum = 0x000000010001 + 300000;
-
-	ip = chunk->buf + chunk->info[i].offset + 26;     //saddr
-	*(uint32_t *)ip = htonl((uint32_t)(gen_ip / 0xFFFF));
-	ip = chunk->buf + chunk->info[i].offset + 34;      //src port
-	*(uint16_t *)ip = htons((uint16_t)(gen_ip % 0xFFFF));
-	gen_ip ++;
-}
-*/
 
 int main(int argc, char **argv)
 {
