@@ -2,9 +2,11 @@
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <assert.h>
 #include <netinet/if_ether.h>
 #include <netinet/ip.h>
 #include <netinet/tcp.h>
+
 #if defined(CRC_SIGN) || defined(CRC_SIGN1) || defined(CRC_SIGN2)
 #include <nmmintrin.h>
 #endif
@@ -32,7 +34,6 @@ extern struct proc_node *tcp_procs;
 extern pthread_key_t tcp_context;
 
 static int cache_elem_num;
-static int core_elem_num;
 
 extern int get_ts(struct tcphdr *, unsigned int *);
 extern int get_wscale(struct tcphdr *, unsigned int *);
@@ -167,7 +168,8 @@ find_stream(struct tcphdr *this_tcphdr, struct ip *this_iphdr, int *from_client)
 
 			// False positive test
 			if (!is_false_positive(addr, tcb_index)) {
-				if (addr.source == tcp_thread_local_p->tcb_array[tcb_index].addr.source)
+				if ((addr.source == tcp_thread_local_p->tcb_array[tcb_index].addr.source) 
+							&& (addr.saddr == tcp_thread_local_p->tcb_array[tcb_index].addr.saddr))
 					*from_client = 1;
 				else
 					*from_client = 0;
@@ -191,7 +193,9 @@ find_stream(struct tcphdr *this_tcphdr, struct ip *this_iphdr, int *from_client)
 				// False positive test
 				if (is_false_positive(addr, tcb_index)) continue;
 
-				if (addr.source == tcp_thread_local_p->tcb_array[tcb_index].addr.source)
+				if ((addr.source == tcp_thread_local_p->tcb_array[tcb_index].addr.source)
+					&& (addr.saddr == tcp_thread_local_p->tcb_array[tcb_index].addr.saddr))
+
 					*from_client = 1;
 				else
 					*from_client = 0;
@@ -209,7 +213,8 @@ find_stream(struct tcphdr *this_tcphdr, struct ip *this_iphdr, int *from_client)
 				// False positive test
 				if (is_false_positive(addr, tcb_index)) continue;
 
-				if (addr.source == tcp_thread_local_p->tcb_array[tcb_index].addr.source)
+				if ((addr.source == tcp_thread_local_p->tcb_array[tcb_index].addr.source)
+					&& (addr.saddr == tcp_thread_local_p->tcb_array[tcb_index].addr.saddr))
 					*from_client = 1;
 				else
 					*from_client = 0;
@@ -233,7 +238,8 @@ find_stream(struct tcphdr *this_tcphdr, struct ip *this_iphdr, int *from_client)
 				// False positive test
 				if (is_false_positive(addr, tcb_index)) continue;
 
-				if (addr.source == tcp_thread_local_p->tcb_array[tcb_index].addr.source)
+				if ((addr.source == tcp_thread_local_p->tcb_array[tcb_index].addr.source)
+					 && (addr.saddr == tcp_thread_local_p->tcb_array[tcb_index].addr.saddr))
 					*from_client = 1;
 				else
 					*from_client = 0;
@@ -255,7 +261,7 @@ find_stream(struct tcphdr *this_tcphdr, struct ip *this_iphdr, int *from_client)
 }
 
 
-//if there is no empty slot, return -1.
+//if don't have empty slots, return -1.
 static idx_type add_into_cache(struct tuple4 addr)
 {
 	tcp_context_t *tcp_thread_local_p = pthread_getspecific(tcp_context);
@@ -346,7 +352,7 @@ static idx_type add_into_cache(struct tuple4 addr)
 	}
 }
 
-void
+static idx_type
 add_new_tcp(struct tcphdr *this_tcphdr, struct ip *this_iphdr)
 {
 	tcp_context_t *tcp_thread_local_p = pthread_getspecific(tcp_context);
@@ -373,14 +379,10 @@ add_new_tcp(struct tcphdr *this_tcphdr, struct ip *this_iphdr)
 
 	// add the index into hash cache
 	index = add_into_cache(addr);
-	if (index >= core_elem_num) {
-		printf("Too many conflict into list, index = %d, conflict into list = %d\n", index, tcp_test[tcp_thread_local_p->self_cpu_id].conflict_into_list);
-		exit(0);
-	}
 
 	if(index == -1){
-		printf("Two buckets are full!\n");
-		exit(0);
+	//	printf("Two buckets are full!\n");
+		return -1;
 	}
 
 	// let's have the block
@@ -397,7 +399,7 @@ add_new_tcp(struct tcphdr *this_tcphdr, struct ip *this_iphdr)
 	a_tcp->client.wscale_on = get_wscale(this_tcphdr, &a_tcp->client.wscale);
 	a_tcp->server.state = TCP_CLOSE;
 
-	return;
+	return 0;
 }
 
 static idx_type 
@@ -529,9 +531,7 @@ nids_free_tcp_stream(struct tcp_stream *a_tcp)
 #if defined(DEBUG)
 	tcp_test[tcp_thread_local_p->self_cpu_id].tcp_num --;
 #endif
-	if (tcb_index >= cache_elem_num) {
-		bitmap_ret_free_index(tcb_index - cache_elem_num);
-	}
+	assert (tcb_index < cache_elem_num);
 	return;
 }
 
@@ -549,8 +549,7 @@ tcp_init(int size)
 	memset(tcp_test, 0, MAX_CPU_CORES * sizeof(struct test_set));
 
 	// Init cache element number
-	cache_elem_num = (SET_NUMBER * SET_ASSOCIATIVE) / (config->worker_num - 1);
-	core_elem_num = MAX_STREAM/(config->worker_num - 1);
+	cache_elem_num = SET_NUMBER * SET_ASSOCIATIVE / (config->worker_num - 1);
 
 	// The hash table
 	tcp_thread_local_p->tcp_stream_table_size = SET_NUMBER/(config->worker_num - 1);
@@ -593,19 +592,21 @@ tcp_init(int size)
 
 	// The TCB array
 #if defined(MEM_ALIGN)
-	if (0 != posix_memalign((void **)&(tcp_thread_local_p->tcb_array), 64, core_elem_num * sizeof(struct tcp_stream))) {
+	if (0 != posix_memalign((void **)&(tcp_thread_local_p->tcb_array), 64, cache_elem_num * sizeof(struct tcp_stream))) {
 		printf("memalign allocation failed, exit\n");
 		exit(0);
 	}
-	memset(tcp_thread_local_p->tcb_array, 0, core_elem_num * sizeof(struct tcp_stream));
+	memset(tcp_thread_local_p->tcb_array, 0, cache_elem_num * sizeof(struct tcp_stream));
 #else
-	tcp_thread_local_p->tcb_array = calloc(core_elem_num, sizeof(struct tcp_stream));
+	tcp_thread_local_p->tcb_array = calloc(cache_elem_num, sizeof(struct tcp_stream));
 #endif
 	if (!tcp_thread_local_p->tcb_array) {
 		printf("tcp_array in tcp_init");
 		exit(0);
 		return -1;
 	}
+
+	printf("Allocating tcb_array %d, tcp_stream_table %d\n", cache_elem_num, SET_NUMBER/(config->worker_num - 1) * 16);
 
 	// Following can be optimized
 	// init_hash();
@@ -632,21 +633,45 @@ tcp_exit()
 	return;
 }
 
-#ifdef HIPAC_ESTABLISHED_POS
-//designed for HiPAC position: established
+#ifdef HIPAC_TCB
+//designed for HiPAC: delete TCB when don't pass hipac
 void
-delete_tcb(char *data)	
+delete_tcp(char *data)	
 {
 	struct ether_header *this_eth = (struct ether_header*)data;
 	struct ip *this_iphdr = (struct ip *)(this_eth + 1);
 	struct tcphdr *this_tcphdr = (struct tcphdr *)(data + sizeof(this_eth) + 4 * this_iphdr->ip_hl);
-	int from_client = 1;
+	int from_client;
 	struct tcp_stream *a_tcp = NULL;
 	
 	a_tcp = find_stream(this_tcphdr, this_iphdr, &from_client);
 	if(a_tcp) nids_free_tcp_stream(a_tcp);
 }
 #endif
+
+void dmesg_pkt(char *data)
+{
+	struct ip *iph;
+	struct tcphdr *tcph;
+	
+	iph = (struct ip *)data; 
+	tcph = (struct tcphdr *)(data + 4 * iph->ip_hl);
+	printf("ack pkt :syn is %u, ack is %u, seq is %u, ack_seq is %u, (sip %u, sport %u, dip %u, dport %u)\n",\
+			((tcph->th_flags & TH_SYN) == TH_SYN), ((tcph->th_flags & TH_ACK) == TH_ACK),\
+			ntohl(tcph->th_seq), ntohl(tcph->th_ack),\
+			ntohl(iph->ip_src.s_addr), ntohs(tcph->th_sport),\
+			ntohl(iph->ip_dst.s_addr), ntohs(tcph->th_dport));
+}
+
+void dmesg_tcb(struct tcp_stream *a_tcp)
+{
+	struct tuple4 addr = a_tcp->addr;
+	struct half_stream client = a_tcp->client;
+	struct half_stream server = a_tcp->server;
+	
+	printf("(sip %u, sport %u, dip %u, dport %u), c.state %d, s.state %d\n",
+		ntohl(addr.saddr), ntohs(addr.source), ntohl(addr.daddr), ntohs(addr.dest), client.state, server.state);
+}
 
 int
 process_tcp(u_char * data, int skblen)
@@ -664,7 +689,6 @@ process_tcp(u_char * data, int skblen)
 	//  ugly_iphdr = this_iphdr;
 	iplen = ntohs(this_iphdr->ip_len);
 	if ((unsigned)iplen < 4 * this_iphdr->ip_hl + sizeof(struct tcphdr)) {
-		fprint(DEBUG, "1\n");
 		return -1;
 	} // ktos sie bawi
 
@@ -673,35 +697,33 @@ process_tcp(u_char * data, int skblen)
 	//printf("ip->ip_len is %d, tcp_off is %d, datalen is %d \n", iplen, 4 * this_tcphdr->th_off, datalen);
 
 	if (datalen < 0) {
-		fprint(DEBUG, "2\n");
 		return -1;
 	} // ktos sie bawi
 
 	if ((this_iphdr->ip_src.s_addr | this_iphdr->ip_dst.s_addr) == 0) {
-		fprint(DEBUG, "3\n");
 		return -1;
 	}
 	//  if (!(this_tcphdr->th_flags & TH_ACK))
 	//    detect_scan(this_iphdr);
-	if (!nids_params.n_tcp_streams) return -1;
+	if (!nids_params.n_tcp_streams){
+		return -1;
+	}
 	
 	if (!(a_tcp = find_stream(this_tcphdr, this_iphdr, &from_client))) {
 		if ((this_tcphdr->th_flags & TH_SYN) &&
 				!(this_tcphdr->th_flags & TH_ACK) &&
 				!(this_tcphdr->th_flags & TH_RST)){
-			add_new_tcp(this_tcphdr, this_iphdr);
+			
+			if(add_new_tcp(this_tcphdr, this_iphdr) == -1){
+				return -2;
+			}
+	
 			return TCP_SYN_SENT;
 		}
 		else{
-			fprint(DEBUG, "4\n");
-			return -1;	//no tcb and syn=0 ---> not forward to server
+			return -1;	//no tcb and syn=0 ---> don't forward to server
 		}
 	}
-
-#ifdef HIPAC_ESTABLISHED_POS
-	if(!(a_tcp = find_stream(this_tcphdr, this_iphdr, &from_client)) && !(this_tcphdr->th_flags & TH_SYN))
-		return -1;
-#endif
 
 	if (from_client) {
 		snd = &a_tcp->client;
@@ -711,14 +733,22 @@ process_tcp(u_char * data, int skblen)
 		rcv = &a_tcp->client;
 		snd = &a_tcp->server;
 	}
+
 	if ((this_tcphdr->th_flags & TH_SYN)) {
+
 		if (from_client || a_tcp->client.state != TCP_SYN_SENT ||
 				a_tcp->server.state != TCP_CLOSE || !(this_tcphdr->th_flags & TH_ACK)){
-			fprint(DEBUG, "5\n");
+			//printf("from_client %d, client state is %d, serevr state is %d\n",
+			//from_client, a_tcp->client.state, a_tcp->server.state);
+#if 0
+			printf("tcb :\n");
+			dmesg_tcb(a_tcp);
+			printf("pkt:\n");
+			dmesg_pkt(data);
+#endif
 			return -1;
 		}
 		if (a_tcp->client.seq != ntohl(this_tcphdr->th_ack)){
-			fprint(DEBUG, "6\n");
 			return -1;
 		}
 		a_tcp->server.state = TCP_SYN_RECV;
@@ -741,7 +771,8 @@ process_tcp(u_char * data, int skblen)
 		} else {
 			a_tcp->server.wscale_on = 0;	
 			a_tcp->server.wscale = 1;
-		}	
+		}
+
 		return TCP_SYN_RECV;
 	}
 	//  printf("datalen = %d, th_seq = %d, ack_seq = %d, window = %d, wscale = %d\n",
@@ -754,7 +785,12 @@ process_tcp(u_char * data, int skblen)
 			  before(ntohl(this_tcphdr->th_seq) + datalen, rcv->ack_seq)  
 			)
 	   )    {
-		fprint(DEBUG, "7\n");
+#if 0
+		printf("tcb:\n");
+		dmesg_tcb(a_tcp);
+		printf("pkt:\n");
+		dmesg_pkt(data);
+#endif
 		return -1;
 	}
 
@@ -864,6 +900,7 @@ process_tcp(u_char * data, int skblen)
 	if (!a_tcp->listeners)
 		nids_free_tcp_stream(a_tcp);
 #endif
+
 	return 0;
 }
 
