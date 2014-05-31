@@ -54,7 +54,7 @@ int fire_init_config()
 
 	memcpy(config->client_interface, "xge1", sizeof("xge1"));
 	memcpy(config->server_interface, "xge0", sizeof("xge0"));
-	config->io_batch_num = 512;
+	config->io_batch_num = 512;		//512;
 	config->client_ifindex = -1;
 	config->server_ifindex = -1;
 	config->max_stream_num = 2000; // XXX
