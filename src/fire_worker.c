@@ -23,15 +23,11 @@
 #include "psio.h"
 #include "hipac.h"
 
-//ioe_bug test --necessary
-//#define IOE_TEST
-#define IOE_TEST_RECV_0
 
-#define HIPAC
 fire_worker_t workers[MAX_WORKER_NUM];
 extern fire_config_t *config;
 
-#ifdef HIPAC
+#ifdef HIPAC_TCB
 extern struct rlp *l;
 #endif
 
@@ -190,6 +186,23 @@ int process_packet(char *eth_data, int len)
 	return ret;
 }
 
+void dmesg(char *data)
+{
+	struct ethhdr *ethh;
+	struct iphdr *iph;
+	struct tcphdr *tcph;
+
+	ethh = (struct ethhdr *)data;
+	iph = (struct iphdr *)(ethh + 1); 
+	tcph = (struct tcphdr *)(data + sizeof(struct ethhdr) + 4*iph->ihl);
+	printf("ack pkt :syn %u, ack %u, seq %u, ack_seq %u, (sip %u, sport %u, dip %u, dport %u)\n",\
+			tcph->syn, tcph->ack,\
+			ntohl(tcph->seq), ntohl(tcph->ack_seq),\
+			ntohl(iph->saddr), ntohs(tcph->source),\
+			ntohl(iph->daddr), ntohs(tcph->dest));
+}
+
+
 int fire_worker_start(int queue_id)
 {
 	int ret, i, j, k, prot, send_ret;
@@ -227,10 +240,7 @@ int fire_worker_start(int queue_id)
 
 	gettimeofday(&(cc->startime), NULL);
 
-#ifdef	IOE_TEST//NOSYNATTACK
-	int nosyn_test = 0;
-#endif
-#if defined(HIPAC)
+#if defined(HIPAC_TCB)
 	int hipac_cnt = 0;
 #endif
 
@@ -241,35 +251,18 @@ int fire_worker_start(int queue_id)
 		k = 0;
 
 		client_chunk.cnt = config->io_batch_num;
-#if defined(IOE_TEST_RECV_0)
 		client_chunk.recv_blocking = 0;
-#else
-		client_chunk.recv_blocking = 1;
-#endif
 
-#if defined(IOE_TEST)
-		while(1){
-			ret = ps_recv_chunk(&(cc->client_handle), &client_chunk);
-			if(ret < 0){
-				printf("IOEngine bug: ps_recv ret is %d\n", ret);
-			}else if(ret == 0){
-				goto process_server;
-			}
-			else break;
-		}
-#else
 		ret = ps_recv_chunk(&(cc->client_handle), &client_chunk);
 		if (ret <= 0) {
 			/* Receive nothing from server, go to the start of the loop to process client again */
 			goto process_server;
 		}
-#endif
 		cc->total_packets += ret;
 
 		int action;
 
 		for (i = 0; i < ret; i ++) {
-
 			prot = process_packet(client_chunk.buf + client_chunk.info[i].offset, client_chunk.info[i].len);
 			switch (prot) {
 				case TCP_SYN_SENT:
@@ -277,7 +270,7 @@ int fire_worker_start(int queue_id)
 					if(action == FORWARD) {
 						// first handshake packet
 						// construct the response, and send back to client
-						fprint(INFO, "1) TCP_SYN_SENT\n");
+						//fprint(INFO, "1) TCP_SYN_SENT\n");
 						send_client_chunk.info[j].len = client_chunk.info[i].len;
 						send_client_chunk.info[j].offset = j * PS_MAX_PACKET_SIZE;
 						memcpy(send_client_chunk.buf + send_client_chunk.info[j].offset,
@@ -286,29 +279,44 @@ int fire_worker_start(int queue_id)
 								send_client_chunk.info[j].len);
 						pret = process_packet(send_client_chunk.buf 
 								+ send_client_chunk.info[j].offset, send_client_chunk.info[j].len);
+#if 0
+						if(pret != TCP_SYN_RECV){
+							printf("pret is %d\n", pret);
+							printf("client:\n");
+							dmesg(client_chunk.buf + client_chunk.info[i].offset);
+							printf("server:\n");
+							dmesg(send_client_chunk.buf + send_client_chunk.info[j].offset);
+							exit(0);
+						}
+#endif
 						assert(pret == TCP_SYN_RECV);
-						fprint(INFO, "2) TCP_SYN_RECV\n");
+						//fprint(INFO, "2) TCP_SYN_RECV\n");
 						j ++;
 					}
 					else{ 
-						hipac_cnt ++;
-						if(hipac_cnt > 0) printf("hipac filter : %d\n", hipac_cnt);
+					//	hipac_cnt ++;
+					//	if(hipac_cnt > 0) printf("hipac filter : %d\n", hipac_cnt);
+						delete_tcp(client_chunk.buf + client_chunk.info[i].offset);
 					}			
 					break;
 
 				case TCP_ESTABLISHED:
 					// the 3rd handshake packet
 					// do nothing and wait for client's real request
-					fprint(INFO, "3) TCP_ESTABLISHED\n");
+					//fprint(INFO, "3) TCP_ESTABLISHED\n");
+					break;
+
+				case -2:
+					//fprint(INFO, "two buckets full\n");
 					break;
 
 				case -1:
-					fprint(INFO, "Error pkt, don't forward to server.\n");
+					//fprint(INFO, "Error pkt, don't forward to server.\n");
 					break;
 
 				default:
 					// normal packet, send to server
-					fprint(INFO, "4) Normal packet, send to server\n");
+					//fprint(INFO, "4) Normal packet, send to server\n");
 					send_server_chunk.info[k].len = client_chunk.info[i].len;
 					send_server_chunk.info[k].offset = k * PS_MAX_PACKET_SIZE;
 					memcpy(send_server_chunk.buf + send_server_chunk.info[k].offset,
@@ -322,7 +330,7 @@ int fire_worker_start(int queue_id)
 		}
 	
 		if (j > 0) {
-			fprint(INFO, "sending %d SYN/ACK packet to client, queue_id %d, ifindex %d\n", j, queue_id, config->client_ifindex);
+			//fprint(INFO, "sending %d SYN/ACK packet to client, queue_id %d, ifindex %d\n", j, queue_id, config->client_ifindex);
 			send_client_chunk.cnt = j;
 			send_ret = ps_send_chunk(&(cc->client_handle), &send_client_chunk);
 			if (send_ret < 0)
@@ -330,16 +338,11 @@ int fire_worker_start(int queue_id)
 		}
 
 		if (k > 0) {
-			fprint(INFO, "sending %d packets of established connection to server, queue_id %d, ifindex %d\n", k, queue_id, config->server_ifindex);
+			//fprint(INFO, "sending %d packets of established connection to server, queue_id %d, ifindex %d\n", k, queue_id, config->server_ifindex);
 			send_server_chunk.cnt = k;
 			send_ret = ps_send_chunk(&(cc->server_handle), &send_server_chunk);
 			if (send_ret < 0)
 				fprint(ERROR, "send packet fail, ret = %d\n", send_ret);
-
-#ifdef IOE_TEST//NOSYNATTACK
-				nosyn_test = 1;
-#endif
-
 		}
 #if 0
 		/* FIXME: cannot send all packets
@@ -359,43 +362,9 @@ process_server:
 		server_chunk.cnt = config->io_batch_num;
 		//server_chunk.recv_blocking = 0;	//modify at the frist time
 
-#if defined(IOE_TEST_RECV_0)
 		server_chunk.recv_blocking = 0;
-#endif
-
-#ifdef IOE_TEST//NOSYNATTACK
-		if(nosyn_test) {
-			server_chunk.recv_blocking = 1;
-		}
-		else
-			server_chunk.recv_blocking = 0;
-#endif
 		j = 0;
 
-#if defined(IOE_TEST)
-		if(server_chunk.recv_blocking){
-			while(1){
-				ret = ps_recv_chunk(&(cc->server_handle), &server_chunk);
-				if(ret < 0){
-					printf("server ps_recv ret is %d\n", ret);
-				}else break;
-			}
-			if(ret == 0){
-				if (errno == EINTR)
-					continue;
-				continue;
-			}
-		}
-		else{
-			ret = ps_recv_chunk(&(cc->server_handle), &server_chunk);
-			if (ret <= 0) {
-				if (errno == EINTR)
-					continue;
-				/* Receive nothing from server, go to the start of the loop to process client again */
-				continue;
-			}
-		}
-#else
 		ret = ps_recv_chunk(&(cc->server_handle), &server_chunk);
 		if (ret <= 0) {
 			if (errno == EINTR)
@@ -403,7 +372,6 @@ process_server:
 			/* Receive nothing from server, go to the start of the loop to process client again */
 			continue;
 		}
-#endif
 		for (i = 0; i < ret; i ++) {
 			prot = process_packet(server_chunk.buf + server_chunk.info[i].offset, server_chunk.info[i].len);
 			if (prot == 0) {
