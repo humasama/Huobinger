@@ -13,7 +13,7 @@
 #define PRINT_LEVELS	6
 
 #ifndef FIRE_PRINT_LEVEL
-#define FIRE_PRINT_LEVEL		FATAL
+#define FIRE_PRINT_LEVEL	FATAL
 #endif
 
 extern char *FIRE_PRINT_MSG[];
